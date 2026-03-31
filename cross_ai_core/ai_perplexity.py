@@ -1,0 +1,219 @@
+import os
+import json
+import hashlib
+from openai import OpenAI
+
+from .ai_base import BaseAIHandler, _get_cache_dir
+
+AI_MAKE = "perplexity"
+AI_MODEL = "sonar-pro"  # 02mar26
+MAX_TOKENS = 16000
+
+"""
+Perplexity Sonar Model Family (via OpenAI-compatible API at https://api.perplexity.ai)
+
+# Sonar Family (Current - 2025/2026)
+sonar-pro                        # Most capable Sonar model; deep research, cited web search
+sonar                            # Balanced speed and capability; general-purpose web search
+sonar-reasoning-pro              # Advanced reasoning with chain-of-thought + web search
+sonar-reasoning                  # Faster reasoning variant; good for structured analysis
+
+# Sonar Deep Research
+sonar-deep-research              # Autonomous multi-step research; produces exhaustive reports
+                                 # Best for wiki-style, long-form report generation
+
+# Legacy Models
+r1-1776                          # Offline DeepSeek R1-based model; no web search, no citations
+                                 # Best for sensitive topics requiring no data collection
+
+# Differences Between Perplexity Model Families
+
+Sonar Pro Family (Current)
+
+sonar-pro:
+  - Most capable online model; best for complex, citation-backed research reports
+  - Performs multiple search queries per request for comprehensive coverage
+  - Ideal for wiki-style report generation with cited sources
+  - Higher cost; worth it for accuracy and depth
+
+sonar:
+  - Fast, cost-efficient general-purpose model
+  - Single search pass; best for straightforward Q&A and summaries
+  - Default choice for high-volume tasks
+
+sonar-reasoning-pro:
+  - Combines chain-of-thought reasoning with live web search
+  - Best for analytical tasks requiring step-by-step logic and current data
+  - Extended thinking visible in response
+
+sonar-reasoning:
+  - Faster reasoning variant; lower cost than sonar-reasoning-pro
+  - Good for structured analysis without deep web crawling
+
+sonar-deep-research:
+  - Performs autonomous, multi-step research across many sources
+  - Produces the most exhaustive, citation-dense reports
+  - Highest latency and cost; best reserved for comprehensive wiki reports
+
+# API Notes
+Perplexity uses an OpenAI-compatible API (https://api.perplexity.ai).
+The OpenAI SDK is used directly with a custom base_url — no separate SDK required.
+All Sonar models include live web search with citations in the response.
+Authentication uses the PERPLEXITY_API_KEY environment variable.
+"""
+
+
+class PerplexityHandler(BaseAIHandler):
+
+    @classmethod
+    def get_payload(cls, prompt: str):
+        return get_perplexity_payload(prompt)
+
+    @classmethod
+    def get_client(cls):
+        return get_perplexity_client()
+
+    @classmethod
+    def get_cached_response(cls, client, payload, verbose, use_cache):
+        return get_perplexity_cached_response(client, payload, verbose, use_cache)
+
+    @classmethod
+    def get_model(cls):
+        return AI_MODEL
+
+    @classmethod
+    def get_make(cls):
+        return AI_MAKE
+
+    @classmethod
+    def get_content(cls,  gen_content):
+        return get_content(gen_content)
+
+    @classmethod
+    def put_content(cls, report, gen_content):
+        return put_content(report, gen_content)
+
+    @classmethod
+    def get_data_content(cls, select_data):
+        return get_data_content(select_data)
+
+    @classmethod
+    def get_title(cls, gen_content):
+        return get_title(gen_content)
+
+    @classmethod
+    def get_usage(cls, response: dict) -> dict:
+        """Extract token counts from a Perplexity (OpenAI-compatible) response dict."""
+        usage = response.get("usage", {})
+        inp = usage.get("prompt_tokens", 0)
+        out = usage.get("completion_tokens", 0)
+        tot = usage.get("total_tokens") or (inp + out)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": tot}
+
+
+def get_perplexity_cached_response(client, payload, verbose=False, use_cache=False):
+    if not use_cache:
+        if verbose:
+            print("Cache disabled; fetching fresh data.")
+        response = client.chat.completions.create(**payload)
+        json_str = response.to_json()
+        json_response = json.loads(json_str)
+        return json_response, False  # Not cached
+    else:
+        # Convert param to a string for hashing
+        param_str = json.dumps(payload, sort_keys=True)
+        md5_hash = hashlib.md5(param_str.encode('utf-8')).hexdigest()
+
+        # Construct the cache file path
+        cache_dir = _get_cache_dir()
+        cache_file = os.path.join(cache_dir, f"{md5_hash}.json")
+
+        # Check if the response is already in cache
+        if os.path.exists(cache_file):
+            if verbose:
+                print(f"api_cache: Using cache_file: {cache_file}")
+            with open(cache_file, 'r') as f:
+                return json.load(f), True  # Cached
+        else:
+            if verbose:
+                print("api_cache: cache miss, submitting API request")
+
+            # If not in cache, fetch the response
+            response = client.chat.completions.create(**payload)
+            json_str = response.to_json()
+            json_response = None
+
+            try:
+                json_response = json.loads(json_str)
+            except ValueError as e:
+                print(f"api_cache: failed json conversion: {e}")
+
+            if json_response is None:
+                return {}, False
+
+            # Save to cache
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+                if verbose:
+                    print(f"api_cache: api_cache/ dir created: {cache_dir}")
+
+            try:
+                with open(cache_file, 'w') as f:
+                    json.dump(json_response, f)
+                    if verbose:
+                        print(f"api_cache: file created: {cache_file}")
+            except Exception as e:
+                print(f"api_cache: file write error: {str(e)}")
+
+            return json_response, False  # Fresh API call, not cached
+
+
+def get_perplexity_payload(prompt_from_file):
+    payload = {
+        "model": AI_MODEL,
+        "messages": [
+            {
+                "role": "system",           # System instruction now explicit — consistent with other AI handlers
+                "content": "You are a seasoned investigative reporter, "
+                           "striving to be accurate, fair and balanced.",
+            },
+            {
+                "role": "user",
+                "content": prompt_from_file,
+            }
+        ],
+        "max_tokens": MAX_TOKENS,
+        "temperature": 0.7,         # 0.0 = deterministic, 1.0 = creative; 0.7 balances both
+        "top_p": 0.95,              # Nucleus sampling; limits token selection to top 95% probability mass
+    }
+    return payload
+
+
+def get_perplexity_client():
+    # Perplexity uses an OpenAI-compatible API; the OpenAI SDK is used with a custom base_url
+    client = OpenAI(
+        api_key=os.environ.get('PERPLEXITY_API_KEY'),
+        base_url="https://api.perplexity.ai",
+    )
+    return client
+
+
+def get_title(story_instance):
+    content = get_data_content(story_instance)
+    title = content.splitlines()[0]
+    return title
+
+
+def get_content(gen_response):
+    content = gen_response["choices"][0]["message"]["content"]
+    return content
+
+
+def put_content(report, gen_response):
+    gen_response["choices"][0]["message"]["content"] = report
+    return gen_response
+
+
+def get_data_content(select_data):
+    content = select_data["gen_response"]["choices"][0]["message"]["content"]
+    return content

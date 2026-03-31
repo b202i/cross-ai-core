@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=78.1.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "cross-ai-core"
+version         = "0.1.0"
+description     = "Multi-provider AI dispatcher with response caching and error handling."
+readme          = "README.md"
+license         = {text = "MIT"}
+requires-python = ">=3.10"
+authors         = [{name = "b202i"}]
+keywords        = ["ai", "llm", "anthropic", "openai", "gemini", "xai", "perplexity", "multi-provider"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "anthropic>=0.84.0",
+    "google-genai>=1.65.0",
+    "openai>=1.70.0",
+    "requests>=2.32.4",
+]
+
+[project.urls]
+Homepage      = "https://github.com/b202i/cross-ai-core"
+Repository    = "https://github.com/b202i/cross-ai-core"
+"Bug Tracker" = "https://github.com/b202i/cross-ai-core/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cross_ai_core*"]
+
