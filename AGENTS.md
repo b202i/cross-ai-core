@@ -39,17 +39,39 @@ for loading keys into `os.environ` before importing. The library only reads env 
 4. Bump version in `pyproject.toml`
 
 ## Development setup
+
+Each repo has its **own `.venv`** — do not share the venv between `cross-ai-core` and `cross-ai`.
+
 ```bash
 cd ~/github/cross-ai-core
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[dev]"     # installs the package + pytest + pytest-mock
 ```
 
-To use the development version in `cross-ai`:
+To use the local development version inside `cross-ai` at the same time:
+
 ```bash
+# In a separate terminal with cross-ai's venv active:
 cd ~/github/cross
-pip install -e ../cross-ai-core/    # editable install of sibling repo
+pip install -e ../cross-ai-core/    # editable — changes are picked up instantly
 ```
+
+## Running tests
+
+```bash
+cd ~/github/cross-ai-core
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
+Tests cover:
+- `test_ai_base.py` — `_get_cache_dir` env resolution, `BaseAIHandler` ABC enforcement
+- `test_ai_error_handler.py` — quota/rate-limit/transient classification, `handle_api_error` exit behaviour
+- `test_ai_handler.py` — registry completeness, `get_default_ai`, `check_api_key`, `AIResponse` backward compat, `process_prompt` with mocked handlers
+
+**Never call real AI APIs in tests.** Use `unittest.mock.patch.dict(AI_HANDLER_REGISTRY, ...)` to inject mock handler classes.
+
+
 
 ## Publishing to PyPI
 ```bash

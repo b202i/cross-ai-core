@@ -1,0 +1,190 @@
+"""
+tests/test_ai_error_handler.py — Tests for cross_ai_core.ai_error_handler
+
+Coverage:
+    is_quota_error        — quota/billing keyword detection
+    is_rate_limit_error   — 429 transient vs. quota distinction
+    is_transient_error    — 5xx / overload keyword detection
+    get_error_type        — classification dispatch
+    handle_api_error      — output + exit behaviour
+    get_ai_dashboard_url  — known and unknown providers
+"""
+import sys
+from unittest.mock import patch
+
+import pytest
+
+from cross_ai_core.ai_error_handler import (
+    get_ai_dashboard_url,
+    get_error_type,
+    handle_api_error,
+    is_quota_error,
+    is_rate_limit_error,
+    is_transient_error,
+)
+
+
+# ── is_quota_error ─────────────────────────────────────────────────────────────
+
+class TestIsQuotaError:
+    @pytest.mark.parametrize("msg", [
+        "exceeded your current quota",
+        "insufficient_quota on your account",
+        "billing limit reached",
+        "please upgrade your plan",
+        "credits exhausted",
+        "spending limit exceeded",
+    ])
+    def test_returns_true_for_quota_keywords(self, msg):
+        assert is_quota_error(Exception(msg)) is True
+
+    @pytest.mark.parametrize("msg", [
+        "429 too many requests",
+        "503 service unavailable",
+        "rate limit",
+        "connection error",
+    ])
+    def test_returns_false_for_non_quota(self, msg):
+        assert is_quota_error(Exception(msg)) is False
+
+
+# ── is_rate_limit_error ────────────────────────────────────────────────────────
+
+class TestIsRateLimitError:
+    def test_returns_true_for_429_without_quota(self):
+        assert is_rate_limit_error(Exception("429 too many requests")) is True
+
+    def test_returns_true_for_rate_keyword(self):
+        assert is_rate_limit_error(Exception("rate limit exceeded")) is True
+
+    def test_returns_false_when_quota_keyword_present(self):
+        # 429 with quota language is a billing error, not a transient rate limit
+        assert is_rate_limit_error(Exception("429 exceeded your current quota")) is False
+
+    def test_returns_false_for_503(self):
+        assert is_rate_limit_error(Exception("503 service unavailable")) is False
+
+
+# ── is_transient_error ─────────────────────────────────────────────────────────
+
+class TestIsTransientError:
+    @pytest.mark.parametrize("msg", [
+        "503 service unavailable",
+        "500 internal server error",
+        "service overloaded",
+        "try again later",
+        "temporarily unavailable",
+        "high demand",
+    ])
+    def test_returns_true_for_transient_keywords(self, msg):
+        assert is_transient_error(Exception(msg)) is True
+
+    def test_returns_false_for_unrelated_error(self):
+        assert is_transient_error(Exception("invalid API key")) is False
+
+
+# ── get_error_type ─────────────────────────────────────────────────────────────
+
+class TestGetErrorType:
+    def test_quota(self):
+        assert get_error_type(Exception("exceeded your current quota")) == "quota"
+
+    def test_rate_limit(self):
+        assert get_error_type(Exception("429 rate limit")) == "rate_limit"
+
+    def test_transient(self):
+        assert get_error_type(Exception("503 unavailable")) == "transient"
+
+    def test_other(self):
+        assert get_error_type(Exception("some unexpected error")) == "other"
+
+
+# ── handle_api_error ───────────────────────────────────────────────────────────
+
+class TestHandleApiError:
+    def test_quota_error_exits_by_default(self):
+        with pytest.raises(SystemExit) as exc_info:
+            handle_api_error(
+                Exception("exceeded your current quota"),
+                ai_name="openai",
+                exit_on_quota=True,
+                quiet=True,
+            )
+        assert exc_info.value.code == 1
+
+    def test_quota_error_no_exit_when_disabled(self):
+        # Should not raise SystemExit when exit_on_quota=False
+        result = handle_api_error(
+            Exception("exceeded your current quota"),
+            ai_name="openai",
+            exit_on_quota=False,
+            quiet=True,
+        )
+        assert result == "quota"
+
+    def test_rate_limit_returns_type_and_does_not_exit(self):
+        result = handle_api_error(
+            Exception("429 rate limit"),
+            ai_name="gemini",
+            exit_on_quota=True,
+            quiet=True,
+        )
+        assert result == "rate_limit"
+
+    def test_transient_returns_type_and_does_not_exit(self):
+        result = handle_api_error(
+            Exception("503 unavailable"),
+            ai_name="xai",
+            exit_on_quota=True,
+            quiet=True,
+        )
+        assert result == "transient"
+
+    def test_other_error_returns_type(self):
+        result = handle_api_error(
+            Exception("unexpected failure"),
+            ai_name="anthropic",
+            exit_on_quota=True,
+            quiet=True,
+        )
+        assert result == "other"
+
+    def test_quiet_suppresses_stderr(self, capsys):
+        handle_api_error(
+            Exception("unexpected failure"),
+            ai_name="anthropic",
+            exit_on_quota=False,
+            quiet=True,
+        )
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+    def test_not_quiet_prints_to_stderr(self, capsys):
+        handle_api_error(
+            Exception("unexpected failure"),
+            ai_name="anthropic",
+            exit_on_quota=False,
+            quiet=False,
+        )
+        captured = capsys.readouterr()
+        assert "anthropic" in captured.err
+
+
+# ── get_ai_dashboard_url ───────────────────────────────────────────────────────
+
+class TestGetAiDashboardUrl:
+    @pytest.mark.parametrize("provider,expected_fragment", [
+        ("openai",     "platform.openai.com"),
+        ("anthropic",  "console.anthropic.com"),
+        ("gemini",     "console.cloud.google.com"),
+        ("xai",        "console.x.ai"),
+        ("perplexity", "perplexity.ai"),
+    ])
+    def test_known_providers_return_url(self, provider, expected_fragment):
+        url = get_ai_dashboard_url(provider)
+        assert expected_fragment in url
+
+    def test_unknown_provider_returns_fallback_string(self):
+        url = get_ai_dashboard_url("unknown_provider")
+        assert "unknown_provider" in url
+

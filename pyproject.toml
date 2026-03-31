@@ -30,6 +30,12 @@ dependencies = [
     "requests>=2.32.4",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+]
+
 [project.urls]
 Homepage      = "https://github.com/b202i/cross-ai-core"
 Repository    = "https://github.com/b202i/cross-ai-core"

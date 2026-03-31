@@ -4,11 +4,25 @@ Multi-provider AI dispatcher with MD5-keyed response caching and unified error h
 
 Supports **Anthropic**, **xAI**, **OpenAI**, **Google Gemini**, and **Perplexity** through a single consistent interface.
 
+## Requirements
+
+- **Python 3.10 or newer** (3.11 recommended for development)
+- No upper version limit — tested on 3.10–3.13
+
 ## Install
 
 ```bash
 pip install cross-ai-core
 ```
+
+## Dependencies
+
+| Package | Version | Purpose |
+|---|---|---|
+| `anthropic` | ≥0.84.0 | Anthropic / Claude API client |
+| `google-genai` | ≥1.65.0 | Google Gemini API client |
+| `openai` | ≥1.70.0 | OpenAI and xAI (Grok) API client |
+| `requests` | ≥2.32.4 | HTTP for Perplexity API |
 
 ## Quick start
 
@@ -64,4 +78,3 @@ if result.was_cached:
 ## License
 
 MIT
-
