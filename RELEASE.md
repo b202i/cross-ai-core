@@ -30,7 +30,15 @@ Passwords are not accepted for uploads — use API tokens.
 **TestPyPI token** (for trial uploads):
 Same process at <https://test.pypi.org>
 
-### 3. Store tokens in `~/.pypirc`
+### 3. Configure `~/.pypirc`
+
+`~/.pypirc` is organized by **index server**, not by package.  A single token
+covers every package you own on that index — if you already have a token
+configured for another package (e.g. `yakyak`), **no changes are needed**.
+`twine upload dist/*` will use the same token and publish `cross-ai-core`
+to your account automatically.
+
+Your existing file probably looks like this, and it already works as-is:
 
 ```ini
 [distutils]
@@ -41,13 +49,52 @@ index-servers =
 [pypi]
 repository = https://upload.pypi.org/legacy/
 username = __token__
-password = pypi-<your-pypi-token-here>
+password = pypi-AgEIcHlwaS5vcmc...   ← your existing "Entire account" token
+                                        covers yakyak, cross-ai-core, and any
+                                        future packages without any changes
 
 [testpypi]
 repository = https://test.pypi.org/legacy/
 username = __token__
-password = pypi-<your-testpypi-token-here>
+password = pypi-AgENdGVzdC5weXBp...  ← same for TestPyPI
 ```
+
+#### If you want per-project tokens (optional, more secure)
+
+PyPI lets you create tokens scoped to a single project.  To use different
+tokens for different packages, add a named section per project and pass
+`--repository` to `twine`:
+
+```ini
+[distutils]
+index-servers =
+    pypi
+    testpypi
+    cross-ai-core
+
+[pypi]
+username = __token__
+password = pypi-<account-wide-token>   ← used for yakyak and others
+
+[testpypi]
+username = __token__
+password = pypi-<testpypi-token>
+
+[cross-ai-core]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-<cross-ai-core-scoped-token>
+```
+
+Then upload with:
+
+```bash
+twine upload --repository cross-ai-core dist/*
+```
+
+Project-scoped tokens are more secure (a leaked token can only affect one
+package), but the extra complexity is only worth it once a package has users
+who depend on it.  For a new package, the account-wide token is fine.
 
 `~/.pypirc` is read automatically by `twine` — never commit this file.
 Add it to your global `~/.gitignore` if not already there:
