@@ -33,68 +33,63 @@ Same process at <https://test.pypi.org>
 ### 3. Configure `~/.pypirc`
 
 `~/.pypirc` is organized by **index server**, not by package.  A single token
-covers every package you own on that index — if you already have a token
-configured for another package (e.g. `yakyak`), **no changes are needed**.
-`twine upload dist/*` will use the same token and publish `cross-ai-core`
-to your account automatically.
+covers every package you own on that account — if you already publish another
+package (e.g. `yakyak`), your existing file already works for `cross-ai-core`
+with no changes.
 
-Your existing file probably looks like this, and it already works as-is:
+The minimal working format — this is all `twine` needs:
 
 ```ini
-[distutils]
-index-servers =
-    pypi
-    testpypi
-
 [pypi]
-repository = https://upload.pypi.org/legacy/
-username = __token__
-password = pypi-AgEIcHlwaS5vcmc...   ← your existing "Entire account" token
-                                        covers yakyak, cross-ai-core, and any
-                                        future packages without any changes
+  username = __token__
+  password = pypi-AgEIcHlwaS5vcmc...
+```
+
+- `[distutils]` with `index-servers =` is **not required** — it is an old
+  convention for legacy tools.  Modern `twine` ignores it.
+- `repository = https://upload.pypi.org/legacy/` is **not required** — `[pypi]`
+  is the default target when you run `twine upload dist/*`.
+- You do **not** need a new token.  An "Entire account" token publishes any
+  package on your account.  If you created a second token, you can safely
+  delete it at <https://pypi.org> → Account Settings → API tokens.
+
+#### Adding TestPyPI (optional)
+
+Only needed if you want to do trial uploads to the sandbox before the real
+release.  Add a second section using a **separate** token from
+<https://test.pypi.org>:
+
+```ini
+[pypi]
+  username = __token__
+  password = pypi-<your-pypi-token>
 
 [testpypi]
-repository = https://test.pypi.org/legacy/
-username = __token__
-password = pypi-AgENdGVzdC5weXBp...  ← same for TestPyPI
+  username = __token__
+  password = pypi-<your-testpypi-token>
 ```
+
+Then trial-upload with `twine upload --repository testpypi dist/*`.
 
 #### If you want per-project tokens (optional, more secure)
 
-PyPI lets you create tokens scoped to a single project.  To use different
-tokens for different packages, add a named section per project and pass
-`--repository` to `twine`:
+A project-scoped token can only publish one named package.  Add a named
+section and pass `--repository` to `twine`:
 
 ```ini
-[distutils]
-index-servers =
-    pypi
-    testpypi
-    cross-ai-core
-
 [pypi]
-username = __token__
-password = pypi-<account-wide-token>   ← used for yakyak and others
-
-[testpypi]
-username = __token__
-password = pypi-<testpypi-token>
+  username = __token__
+  password = pypi-<account-wide-token>     ← covers yakyak, cross-ai-core, etc.
 
 [cross-ai-core]
-repository = https://upload.pypi.org/legacy/
-username = __token__
-password = pypi-<cross-ai-core-scoped-token>
+  repository = https://upload.pypi.org/legacy/
+  username = __token__
+  password = pypi-<cross-ai-core-only-token>
 ```
 
-Then upload with:
+Upload with: `twine upload --repository cross-ai-core dist/*`
 
-```bash
-twine upload --repository cross-ai-core dist/*
-```
-
-Project-scoped tokens are more secure (a leaked token can only affect one
-package), but the extra complexity is only worth it once a package has users
-who depend on it.  For a new package, the account-wide token is fine.
+Worth doing once the package has external users; overkill for a new package.
 
 `~/.pypirc` is read automatically by `twine` — never commit this file.
 Add it to your global `~/.gitignore` if not already there:
