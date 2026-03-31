@@ -2,7 +2,7 @@
 
 Multi-provider AI dispatcher with MD5-keyed response caching and unified error handling.
 
-Supports **Anthropic**, **xAI**, **OpenAI**, **Google Gemini**, and **Perplexity** through a single consistent interface.
+Supports **Anthropic**, **xAI (Grok)**, **OpenAI**, **Google Gemini**, and **Perplexity** through a single consistent interface.
 
 ## Requirements
 
@@ -11,18 +11,35 @@ Supports **Anthropic**, **xAI**, **OpenAI**, **Google Gemini**, and **Perplexity
 
 ## Install
 
+Install only the provider(s) you need:
+
 ```bash
-pip install cross-ai-core
+pip install "cross-ai-core[anthropic]"   # Claude
+pip install "cross-ai-core[gemini]"      # Google Gemini
+pip install "cross-ai-core[openai]"      # OpenAI (ChatGPT)
+pip install "cross-ai-core[xai]"         # xAI Grok  (uses the OpenAI SDK)
+pip install cross-ai-core                # Perplexity only (uses requests, no extra SDK)
+```
+
+Install all providers at once (used by [cross](https://github.com/b202i/cross), which runs all 5 simultaneously):
+
+```bash
+pip install "cross-ai-core[all]"
 ```
 
 ## Dependencies
 
-| Package | Version | Purpose |
-|---|---|---|
-| `anthropic` | ≥0.84.0 | Anthropic / Claude API client |
-| `google-genai` | ≥1.65.0 | Google Gemini API client |
-| `openai` | ≥1.70.0 | OpenAI and xAI (Grok) API client |
-| `requests` | ≥2.32.4 | HTTP for Perplexity API |
+`requests` is always installed — it is used for the Perplexity provider and general HTTP.  
+The three provider SDKs are optional extras; pip installs only what you request.
+
+| Extra | Package | Version | Providers covered |
+|-------|---------|---------|-------------------|
+| *(base)* | `requests` | ≥2.32.4 | Perplexity |
+| `[anthropic]` | `anthropic` | ≥0.84.0 | Anthropic / Claude |
+| `[gemini]` | `google-genai` | ≥1.65.0 | Google Gemini |
+| `[openai]` | `openai` | ≥1.70.0 | OpenAI |
+| `[xai]` | `openai` | ≥1.70.0 | xAI / Grok (OpenAI-compatible API) |
+| `[all]` | all three above | — | All 5 providers |
 
 ## Quick start
 
@@ -41,7 +58,7 @@ print(get_content(provider, result.response))
 ## Configuration (environment variables)
 
 | Variable | Default | Purpose |
-|---|---|---|
+|----------|---------|---------|
 | `DEFAULT_AI` | `xai` | Default provider when none is specified |
 | `XAI_API_KEY` | — | xAI / Grok API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic / Claude API key |
@@ -52,7 +69,8 @@ print(get_content(provider, result.response))
 | `CROSS_NO_CACHE` | — | Set to `1` to disable caching globally |
 
 The library only reads from `os.environ` — it never calls `load_dotenv()` itself.  
-Load your `.env` or `~/.crossenv` before importing.
+Load your `.env` or `~/.crossenv` before importing.  
+You only need to set API keys for the providers you actually use.
 
 ## Caching
 

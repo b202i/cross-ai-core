@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "cross-ai-core"
-version         = "0.2.0"
+version         = "0.3.0"
 description     = "Multi-provider AI dispatcher with response caching and error handling."
 readme          = "README.md"
 license         = {text = "MIT"}
@@ -23,14 +23,30 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+# requests is always required: used for the Perplexity provider and general HTTP.
+# Provider SDKs are optional — install only what you need (see below).
 dependencies = [
-    "anthropic>=0.84.0",
-    "google-genai>=1.65.0",
-    "openai>=1.70.0",
     "requests>=2.32.4",
 ]
 
 [project.optional-dependencies]
+# Install a single provider:
+#   pip install "cross-ai-core[anthropic]"
+#   pip install "cross-ai-core[gemini]"
+#   pip install "cross-ai-core[openai]"    # also covers xAI (Grok)
+anthropic = ["anthropic>=0.84.0"]
+gemini    = ["google-genai>=1.65.0"]
+openai    = ["openai>=1.70.0"]
+xai       = ["openai>=1.70.0"]            # xAI (Grok) uses the OpenAI client SDK
+
+# All providers — used by cross (multi-provider by design):
+#   pip install "cross-ai-core[all]"
+all = [
+    "anthropic>=0.84.0",
+    "google-genai>=1.65.0",
+    "openai>=1.70.0",
+]
+
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
@@ -44,4 +60,3 @@ Repository    = "https://github.com/b202i/cross-ai-core"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cross_ai_core*"]
-
