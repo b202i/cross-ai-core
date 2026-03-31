@@ -74,30 +74,25 @@ Tests cover:
 
 
 ## Publishing to PyPI
+
+See **[RELEASE.md](RELEASE.md)** for the full step-by-step process, including
+first-time PyPI account and token setup, TestPyPI trial uploads, the version
+bump checklist, tagging, and the hotfix workflow.
+
+Quick reference (assumes `~/.pypirc` is already configured):
+
 ```bash
-# One-time setup (if not already done)
-pip install build twine
-
-# Build
-cd ~/github/cross-ai-core
-python -m build
-
-# Check
-twine check dist/*
-
-# Upload (prompts for PyPI credentials or API token)
-twine upload dist/*
-```
-
-After publishing, update `cross-ai/pyproject.toml` to pin a released version:
-```toml
-"cross-ai-core>=0.1.0",
+# bump version in pyproject.toml + cross_ai_core/__init__.py, then:
+rm -rf dist/ && python -m build && twine check dist/*
+twine upload --repository testpypi dist/*   # trial
+twine upload dist/*                         # real
+git tag v0.x.y && git push --tags
 ```
 
 ## Version bump checklist
 1. Update `version` in `pyproject.toml`
 2. Update `__version__` in `cross_ai_core/__init__.py`
-3. `git tag v0.x.0 && git push --tags`
+3. `git tag v0.x.y && git push --tags`
 4. `python -m build && twine upload dist/*`
 5. In `cross-ai/pyproject.toml`, bump the `cross-ai-core>=` lower bound if needed
 

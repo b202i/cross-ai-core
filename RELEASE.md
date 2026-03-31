@@ -1,0 +1,264 @@
+# RELEASE.md — Publishing cross-ai-core to PyPI
+
+This document covers everything needed to publish and update the `cross-ai-core`
+package on PyPI, from first-time account setup through routine version bumps.
+
+---
+
+## One-time setup
+
+### 1. Create a PyPI account
+
+Go to <https://pypi.org/account/register/> and create an account.  
+Enable two-factor authentication — PyPI requires it for publishing.
+
+Also create an account on **TestPyPI** at <https://test.pypi.org/account/register/>  
+(separate account, same process).  TestPyPI is a sandbox — always do a trial
+upload there before hitting the real index.
+
+### 2. Create API tokens
+
+Passwords are not accepted for uploads — use API tokens.
+
+**PyPI token** (for real releases):
+1. Log in at <https://pypi.org>
+2. Account Settings → API tokens → Add API token
+3. Scope: "Entire account" for the first upload; after the project exists, scope it
+   to `cross-ai-core` only
+4. Copy the token — it starts with `pypi-` and is shown only once
+
+**TestPyPI token** (for trial uploads):
+Same process at <https://test.pypi.org>
+
+### 3. Store tokens in `~/.pypirc`
+
+```ini
+[distutils]
+index-servers =
+    pypi
+    testpypi
+
+[pypi]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-<your-pypi-token-here>
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-<your-testpypi-token-here>
+```
+
+`~/.pypirc` is read automatically by `twine` — never commit this file.
+Add it to your global `~/.gitignore` if not already there:
+
+```bash
+echo ".pypirc" >> ~/.gitignore
+```
+
+### 4. Install build tools (once, in the cross-ai-core venv)
+
+```bash
+cd ~/github/cross-ai-core
+source .venv/bin/activate
+pip install build twine
+```
+
+---
+
+## Publishing a release
+
+### Step 1 — Bump the version
+
+Edit **two files**:
+
+**`pyproject.toml`:**
+```toml
+version = "0.2.0"
+```
+
+**`cross_ai_core/__init__.py`:**
+```python
+__version__ = "0.2.0"
+```
+
+Version numbers follow [Semantic Versioning](https://semver.org/):
+
+| Change | Example | When to use |
+|---|---|---|
+| Patch `0.1.x` | `0.1.0` → `0.1.1` | Bug fix, no API change |
+| Minor `0.x.0` | `0.1.0` → `0.2.0` | New feature, fully backward-compatible |
+| Major `x.0.0` | `0.1.0` → `1.0.0` | Breaking change to public API |
+
+### Step 2 — Run the tests
+
+```bash
+cd ~/github/cross-ai-core
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
+All tests must pass before building.  If any fail, fix them first.
+
+### Step 3 — Clean and build
+
+```bash
+# Remove any previous build artefacts first
+rm -rf dist/ build/ cross_ai_core.egg-info/
+
+# Build both the source distribution and the wheel
+python -m build
+```
+
+This produces two files in `dist/`:
+- `cross_ai_core-0.2.0.tar.gz` — source distribution
+- `cross_ai_core-0.2.0-py3-none-any.whl` — wheel
+
+### Step 4 — Validate the build
+
+```bash
+twine check dist/*
+```
+
+Fix any warnings before uploading.  Common issues: missing README, malformed
+classifiers, long description rendering errors.
+
+### Step 5 — Trial upload to TestPyPI
+
+```bash
+twine upload --repository testpypi dist/*
+```
+
+Then verify it installs cleanly from the sandbox:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ \
+            cross-ai-core==0.2.0
+python -c "import cross_ai_core; print(cross_ai_core.__version__)"
+```
+
+The `--extra-index-url` fallback is needed because TestPyPI doesn't have
+`anthropic`, `openai`, etc. — they're fetched from the real PyPI.
+
+### Step 6 — Upload to PyPI
+
+```bash
+twine upload dist/*
+```
+
+The package is now live at <https://pypi.org/project/cross-ai-core/>.
+
+### Step 7 — Tag the release in git
+
+```bash
+git add pyproject.toml cross_ai_core/__init__.py
+git commit -m "Release v0.2.0"
+git tag v0.2.0
+git push && git push --tags
+```
+
+### Step 8 — Update cross-ai to use the new version
+
+In `~/github/cross/pyproject.toml`, update the lower bound if the new release
+is required:
+
+```toml
+"cross-ai-core>=0.2.0",
+```
+
+Then reinstall Cross:
+
+```bash
+cd ~/github/cross
+source .venv/bin/activate
+pip install -e .
+python -m pytest tests/ -q    # confirm nothing broke
+```
+
+---
+
+## Routine version bump — quick reference
+
+```bash
+# 1. Edit version in pyproject.toml and cross_ai_core/__init__.py
+# 2. Test
+cd ~/github/cross-ai-core && source .venv/bin/activate
+python -m pytest tests/ -v
+
+# 3. Build + check
+rm -rf dist/ && python -m build && twine check dist/*
+
+# 4. Trial upload
+twine upload --repository testpypi dist/*
+
+# 5. Real upload
+twine upload dist/*
+
+# 6. Tag
+git add pyproject.toml cross_ai_core/__init__.py
+git commit -m "Release v0.x.y"
+git tag v0.x.y && git push && git push --tags
+```
+
+---
+
+## Hotfix process
+
+For an urgent bug fix without new features:
+
+1. Create a branch: `git checkout -b hotfix/0.1.1`
+2. Fix the bug, update version to `0.1.1` in both files
+3. Run tests, build, upload to TestPyPI, upload to PyPI
+4. `git tag v0.1.1 && git push --tags`
+5. Merge back to `master`: `git checkout master && git merge hotfix/0.1.1`
+
+---
+
+## Troubleshooting
+
+**`twine upload` says "File already exists"**  
+PyPI does not allow re-uploading the same version number, even if you delete the
+release. Bump to a new patch version (e.g. `0.1.1`) and upload again.
+
+**`twine check` fails on long description**  
+The README must be valid reStructuredText or Markdown. Run `python -m build`
+and inspect `dist/*.tar.gz` to confirm `README.md` is included.
+
+**`pip install cross-ai-core` gets the old version**  
+PyPI has a propagation delay of a few minutes.  Wait and retry, or install
+with the explicit version: `pip install cross-ai-core==0.2.0`.
+
+**Token rejected**  
+Confirm `~/.pypirc` has `username = __token__` (literally, not your username)
+and the password is the full token string starting with `pypi-`.
+
+---
+
+## Relationship to cross-ai
+
+`cross-ai` depends on `cross-ai-core`.  After publishing a new `cross-ai-core`
+version, the workflow in the `cross-ai` repo is:
+
+```
+cross-ai-core releases 0.2.0
+    ↓
+pip install cross-ai-core==0.2.0   (test in cross-ai's venv)
+    ↓
+Update cross-ai/pyproject.toml lower bound if needed
+    ↓
+Run cross-ai test suite
+    ↓
+Commit + release cross-ai if needed
+```
+
+During active development on both repos simultaneously, use the editable
+sibling install so you never need to publish just to test:
+
+```bash
+# In cross-ai's venv:
+pip install -e ../cross-ai-core/
+```
+
+Changes to `cross_ai_core/` are immediately visible without any reinstall.
+
