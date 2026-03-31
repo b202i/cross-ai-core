@@ -6,3 +6,19 @@ build/
 .venv/
 .env
 
+# IDE
+.idea/
+
+# macOS
+.DS_Store
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type / lint caches
+.mypy_cache/
+.ruff_cache/
