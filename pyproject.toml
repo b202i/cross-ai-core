@@ -60,3 +60,9 @@ Repository    = "https://github.com/b202i/cross-ai-core"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cross_ai_core*"]
+
+[tool.setuptools.package-data]
+cross_ai_core = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

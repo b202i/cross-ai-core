@@ -78,6 +78,34 @@ class TestBaseAIHandler:
             def get_cached_response(cls, client, payload, verbose, use_cache):
                 return {}, False
 
+            @classmethod
+            def get_model(cls):
+                return "test-model"
+
+            @classmethod
+            def get_make(cls):
+                return "test"
+
+            @classmethod
+            def get_content(cls, response):
+                return ""
+
+            @classmethod
+            def put_content(cls, report, response):
+                return response
+
+            @classmethod
+            def get_data_content(cls, select_data):
+                return ""
+
+            @classmethod
+            def get_title(cls, gen_content):
+                return ""
+
+            @classmethod
+            def get_usage(cls, response):
+                return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
         # Should not raise
         instance = Complete()
         assert instance is not None

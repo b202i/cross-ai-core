@@ -109,7 +109,7 @@ class OpenAIHandler(BaseAIHandler):
         return {"input_tokens": inp, "output_tokens": out, "total_tokens": tot}
 
 
-def get_openai_cached_response(client, payload, verbose=False, use_cache=False):
+def get_openai_cached_response(client, payload, verbose=False, use_cache=True):
 
     if not use_cache:
         if verbose:

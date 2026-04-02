@@ -54,7 +54,6 @@ AI_HANDLER_REGISTRY = {
 }
 
 AI_LIST = ["xai", "anthropic", "openai", "perplexity", "gemini"]
-# AI_LIST = ["xai", "anthropic", "openai", "perplexity"]
 
 
 def process_prompt(ai_key: str, prompt: str, verbose: bool, use_cache: bool):
@@ -161,11 +160,15 @@ def get_default_ai():
 
 def get_ai_make(ai_key: str):
     handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    if not handler_cls:
+        raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.get_make()
 
 
 def get_ai_model(ai_key: str):
     handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    if not handler_cls:
+        raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.get_model()
 
 

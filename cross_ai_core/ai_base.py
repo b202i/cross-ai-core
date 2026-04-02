@@ -50,3 +50,46 @@ class BaseAIHandler(ABC):  # Abstract Base Class
         """Return the cached response function."""
         pass
 
+    @classmethod
+    @abstractmethod
+    def get_model(cls) -> str:
+        """Return the model identifier string (e.g. 'gpt-4o')."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_make(cls) -> str:
+        """Return the provider make string (e.g. 'openai')."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_content(cls, response: dict) -> str:
+        """Extract the text content from a raw API response dict."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def put_content(cls, report: str, response: dict) -> dict:
+        """Inject updated text content back into a raw API response dict."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_data_content(cls, select_data: dict) -> str:
+        """Extract text from a stored data record (gen_response wrapper)."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_title(cls, gen_content: dict) -> str:
+        """Return the first line of the content as a title."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_usage(cls, response: dict) -> dict:
+        """Return token usage dict: {input_tokens, output_tokens, total_tokens}."""
+        pass
+
+

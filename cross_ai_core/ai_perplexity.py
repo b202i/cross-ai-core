@@ -110,7 +110,7 @@ class PerplexityHandler(BaseAIHandler):
         return {"input_tokens": inp, "output_tokens": out, "total_tokens": tot}
 
 
-def get_perplexity_cached_response(client, payload, verbose=False, use_cache=False):
+def get_perplexity_cached_response(client, payload, verbose=False, use_cache=True):
     if not use_cache:
         if verbose:
             print("Cache disabled; fetching fresh data.")

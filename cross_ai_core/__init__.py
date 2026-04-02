@@ -46,7 +46,7 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     process_prompt,
     put_content,
 )
-from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir  # noqa: F401
+from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
 from cross_ai_core.ai_error_handler import handle_api_error       # noqa: F401
 
 __version__ = "0.3.0"
@@ -69,8 +69,10 @@ __all__ = [
     "AIResponse",
     # Extension points
     "BaseAIHandler",
-    "_get_cache_dir",
+    "get_cache_dir",
     # Error handling
     "handle_api_error",
+    # Package metadata
+    "__version__",
 ]
 

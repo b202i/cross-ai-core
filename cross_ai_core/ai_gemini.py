@@ -195,8 +195,8 @@ def get_gemini_cached_response(client, payload, verbose=False, use_cache=False):
 
 
 def get_gemini_config():
-    from google.genai import types
     """Return the GenerateContentConfig separately — not stored in the JSON payload."""
+    from google.genai import types
     return types.GenerateContentConfig(
         system_instruction="You are a seasoned investigative reporter, "
                            "striving to be accurate, fair and balanced.",
