@@ -1,8 +1,6 @@
 import os
 import json
 import hashlib
-from google import genai
-from google.genai import types
 
 from .ai_base import BaseAIHandler, _get_cache_dir
 
@@ -197,6 +195,7 @@ def get_gemini_cached_response(client, payload, verbose=False, use_cache=False):
 
 
 def get_gemini_config():
+    from google.genai import types
     """Return the GenerateContentConfig separately — not stored in the JSON payload."""
     return types.GenerateContentConfig(
         system_instruction="You are a seasoned investigative reporter, "
@@ -218,6 +217,8 @@ def get_gemini_payload(prompt_from_file):
 
 
 def get_gemini_client():
+    from google import genai
+    from google.genai import types
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
         http_options=types.HttpOptions(api_version='v1beta')  # v1beta required: v1 does not support systemInstruction

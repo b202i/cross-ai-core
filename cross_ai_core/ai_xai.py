@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 
-from anthropic import Anthropic
 
 from .ai_base import BaseAIHandler, _get_cache_dir
 
@@ -186,6 +185,7 @@ def get_xai_payload(prompt):
 
 
 def get_xai_client():
+    from anthropic import Anthropic
     # xAI uses an Anthropic-compatible API; the Anthropic SDK is used with a custom base_url
     client = Anthropic(
         api_key=os.getenv("XAI_API_KEY"),

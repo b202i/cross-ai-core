@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-import openai
 from .ai_base import BaseAIHandler, _get_cache_dir
 
 AI_MAKE = "openai"
@@ -190,6 +189,7 @@ def get_openai_payload(prompt_from_file):
 
 
 def get_openai_client():
+    import openai
     # OpenAI native SDK — not a compatibility wrapper
     client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
     return client

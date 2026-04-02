@@ -86,6 +86,25 @@ if result.was_cached:
     print("from cache")
 ```
 
+## Development
+
+```bash
+cd ~/github/cross-ai-core
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"     # installs the package + pytest + pytest-mock
+```
+
+Run the test suite:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Tests use mocks — no real API keys required.
+
+> **Note:** Keep each repo's `.venv` separate; do not share it with dependent projects.
+
 ## Adding a provider
 
 1. Create `cross_ai_core/ai_<name>.py` implementing `BaseAIHandler`

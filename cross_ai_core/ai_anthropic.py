@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 
-from anthropic import Anthropic
 
 from .ai_base import BaseAIHandler, _get_cache_dir
 
@@ -195,6 +194,7 @@ def get_anthropic_payload(prompt):
 
 
 def get_anthropic_client():
+    from anthropic import Anthropic
     client = Anthropic(
         api_key=os.getenv("ANTHROPIC_API_KEY"),
         # base_url="https://api.x.ai",

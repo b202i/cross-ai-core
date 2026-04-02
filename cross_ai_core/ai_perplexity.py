@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-from openai import OpenAI
 
 from .ai_base import BaseAIHandler, _get_cache_dir
 
@@ -190,6 +189,7 @@ def get_perplexity_payload(prompt_from_file):
 
 
 def get_perplexity_client():
+    from openai import OpenAI
     # Perplexity uses an OpenAI-compatible API; the OpenAI SDK is used with a custom base_url
     client = OpenAI(
         api_key=os.environ.get('PERPLEXITY_API_KEY'),
