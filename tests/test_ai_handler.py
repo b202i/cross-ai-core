@@ -199,7 +199,7 @@ class TestProcessPrompt:
         mock_cls = self._mock_handler()
         with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
             process_prompt("mock_ai", "my prompt", verbose=False, use_cache=True)
-        mock_cls.get_payload.assert_called_once_with("my prompt")
+        mock_cls.get_payload.assert_called_once_with("my prompt", system=None)
 
     def test_passes_use_cache_to_get_cached_response(self):
         mock_cls = self._mock_handler()

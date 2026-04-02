@@ -1,0 +1,168 @@
+# Providers — cross-ai-core
+
+`cross-ai-core` supports five AI providers through a single `process_prompt()` interface.
+You only need API keys for the providers you actually use.
+
+## Quick-pick guide
+
+| Provider key | Model family | Best for | Free tier |
+|---|---|---|---|
+| `"xai"` | Grok 4 | Current events, fast reasoning | ⚠️ Limited credits |
+| `"anthropic"` | Claude 4 | Deep reasoning, high-quality prose | ❌ No |
+| `"openai"` | GPT-4o | Reliable baseline, structured output | ❌ No |
+| `"perplexity"` | Sonar Pro | Live web search with citations | ❌ No |
+| `"gemini"` | Gemini 2.5 | Long context, getting started | ✅ Yes |
+
+---
+
+## xAI — `"xai"`
+
+**Default model:** `grok-4-1-fast-reasoning`  
+**Key variable:** `XAI_API_KEY`  
+**Get a key:** [console.x.ai](https://console.x.ai)  
+**Install:** `pip install "cross-ai-core[xai]"`
+
+xAI's Grok models use an **Anthropic-compatible API** at `https://api.x.ai`.
+`cross-ai-core` uses the Anthropic SDK with a custom `base_url` — no separate SDK required.
+
+**Strengths:**
+- Fast reasoning with `grok-4-1-fast-reasoning`; strong on current events and technology
+- More opinionated and direct than most models — makes clear, verifiable claims
+- Trained on X / Twitter data; good awareness of named individuals and recent discourse
+
+**Notes:** Free credits for new accounts deplete quickly. Set a spending limit in the xAI console.
+
+---
+
+## Anthropic — `"anthropic"`
+
+**Default model:** `claude-opus-4-5`  
+**Key variable:** `ANTHROPIC_API_KEY`  
+**Get a key:** [console.anthropic.com](https://console.anthropic.com) — credit card required  
+**Install:** `pip install "cross-ai-core[anthropic]"`
+
+Claude is built around long, structured, carefully hedged responses.
+`cross-ai-core` enables **extended thinking** (`budget_tokens: 10000`) by default on
+Claude 3.7+ and Claude 4 models — the model reasons internally before replying.
+
+**Strengths:**
+- Highest-quality prose and document structure
+- Extended thinking mode for deep multi-step reasoning
+- Low tendency toward confident false statements
+
+**Notes:** `claude-opus-4-5` is the most capable but also the most expensive per token.
+Use `claude-sonnet-4-5` for a faster, cheaper alternative.
+
+---
+
+## OpenAI — `"openai"`
+
+**Default model:** `gpt-4o`  
+**Key variable:** `OPENAI_API_KEY`  
+**Get a key:** [platform.openai.com](https://platform.openai.com) — credit card required  
+**Install:** `pip install "cross-ai-core[openai]"`
+
+GPT-4o is a reliable, well-rounded model with a 128K token context window.
+Consistent output format makes it a solid baseline.
+
+**Strengths:**
+- Stable, predictable output; reliable for downstream parsing pipelines
+- Strong across a wide range of general-knowledge domains
+- 128K context handles large payloads without truncation
+
+**Notes:** OpenAI's free tier has been removed — a small prepaid credit is required.
+API latency can be higher than Gemini or xAI under load.
+
+---
+
+## Perplexity — `"perplexity"`
+
+**Default model:** `sonar-pro`  
+**Key variable:** `PERPLEXITY_API_KEY`  
+**Get a key:** [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) — paid plan or API credits  
+**Install:** `pip install cross-ai-core` *(no extra SDK — uses `requests`)*
+
+Perplexity's Sonar models do **live web search with citations** before generating a response.
+This makes them uniquely suited to current-events questions where training cut-offs matter.
+
+**Strengths:**
+- Grounded responses — citations reduce hallucination on time-sensitive facts
+- Naturally produces claim-level structure with source URLs
+- No extra SDK dependency — pure HTTP via `requests`
+
+**Notes:** Response times are higher than other providers because each call includes a search step.
+
+---
+
+## Google Gemini — `"gemini"`
+
+**Default model:** `gemini-2.5-flash`  
+**Key variable:** `GEMINI_API_KEY`  
+**Get a key:** [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) — **free, no credit card**  
+**Install:** `pip install "cross-ai-core[gemini]"`
+
+Gemini is the recommended starting point for new users: genuinely free tier,
+fast responses, and a massive 1M-token context window.
+
+**Free tier limits:** 15 req/min · 1,500 req/day · 1M tokens/day
+
+**Strengths:**
+- Only provider with a free API tier — ideal for development and exploration
+- 1M token context window; handles very large prompts without truncation
+- Reliable structured output; low hallucination rate on factual domains
+
+**Notes:** Gemini occasionally produces safety refusals on politically sensitive topics.
+If a prompt triggers one, rephrase or use a different provider.
+
+---
+
+## Using multiple providers in parallel
+
+All five providers can run simultaneously — since `process_prompt` is I/O-bound,
+Python threads give true parallelism:
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from cross_ai_core import process_prompt, get_content, get_ai_list
+
+prompt = "What will be the biggest AI story this week?"
+system = "You are a concise technology journalist."
+
+def call_one(provider):
+    result = process_prompt(provider, prompt, system=system, use_cache=True)
+    return provider, get_content(provider, result.response)
+
+with ThreadPoolExecutor(max_workers=5) as pool:
+    futures = {pool.submit(call_one, p): p for p in get_ai_list()}
+    for future in as_completed(futures):
+        try:
+            provider, text = future.result()
+            print(f"\n=== {provider} ===\n{text[:400]}\n")
+        except Exception as e:
+            print(f"  {futures[future]} failed: {e}")
+```
+
+See the [API reference](api-reference.md#parallel-calls) for a two-provider example and error handling patterns.
+
+---
+
+## Environment variable summary
+
+| Variable | Provider |
+|----------|----------|
+| `XAI_API_KEY` | xAI / Grok |
+| `ANTHROPIC_API_KEY` | Anthropic / Claude |
+| `OPENAI_API_KEY` | OpenAI |
+| `PERPLEXITY_API_KEY` | Perplexity |
+| `GEMINI_API_KEY` | Google Gemini |
+| `DEFAULT_AI` | Which provider `get_default_ai()` returns |
+| `CROSS_API_CACHE_DIR` | Override default `~/.cross_api_cache/` directory |
+| `CROSS_NO_CACHE` | Set to `1` to disable caching globally |
+
+The library **never calls `load_dotenv()`**. Load your `.env` or `~/.crossenv`
+in your application before importing `cross_ai_core`.
+
+---
+
+**Next:** [API reference](api-reference.md)
+

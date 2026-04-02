@@ -1,5 +1,9 @@
 # cross-ai-core
 
+[![PyPI version](https://img.shields.io/pypi/v/cross-ai-core.svg)](https://pypi.org/project/cross-ai-core/)
+[![Python](https://img.shields.io/pypi/pyversions/cross-ai-core)](https://pypi.org/project/cross-ai-core/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Multi-provider AI dispatcher with MD5-keyed response caching and unified error handling.
 
 Supports **Anthropic**, **xAI (Grok)**, **OpenAI**, **Google Gemini**, and **Perplexity** through a single consistent interface.
@@ -44,14 +48,20 @@ The three provider SDKs are optional extras; pip installs only what you request.
 ## Quick start
 
 ```python
+import os
 from dotenv import load_dotenv
-load_dotenv("~/.crossenv")          # your app loads keys; the library reads os.environ
+load_dotenv(os.path.expanduser("~/.crossenv"))  # your app loads keys; the library reads os.environ
 
 from cross_ai_core import process_prompt, get_content, get_default_ai
 
 provider = get_default_ai()         # reads DEFAULT_AI from env, falls back to "xai"
-result   = process_prompt(provider, "Explain transformer attention in 3 sentences.",
-                          verbose=False, use_cache=True)
+result   = process_prompt(
+    provider,
+    "Explain transformer attention in 3 sentences.",
+    system="You are a concise technical writer.",   # omit to use each provider's default
+    verbose=False,
+    use_cache=True,
+)
 print(get_content(provider, result.response))
 ```
 
@@ -112,6 +122,13 @@ Tests use mocks — no real API keys required.
    `get_content`, `put_content`, `get_data_content`, `get_title`, `get_usage`).
 2. Register in `cross_ai_core/ai_handler.py`: add to `AI_HANDLER_REGISTRY` and `AI_LIST`.
 
+## Documentation
+
+- [API reference](docs/api-reference.md) — all public functions, `AIResponse`, parallel calls, error handling
+- [Providers](docs/providers.md) — per-provider guide: models, API keys, strengths, free tiers
+- [Changelog](CHANGELOG.md)
+
 ## License
 
-MIT
+MIT — free for personal, academic, and open-source use.  
+See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for organizational and commercial use.

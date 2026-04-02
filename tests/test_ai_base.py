@@ -67,7 +67,7 @@ class TestBaseAIHandler:
         """A subclass that implements all abstract methods can be instantiated."""
         class Complete(BaseAIHandler):
             @classmethod
-            def get_payload(cls, prompt):
+            def get_payload(cls, prompt, system=None):
                 return {}
 
             @classmethod
@@ -75,8 +75,8 @@ class TestBaseAIHandler:
                 return None
 
             @classmethod
-            def get_cached_response(cls, client, payload, verbose, use_cache):
-                return {}, False
+            def _call_api(cls, client, payload):
+                return {}
 
             @classmethod
             def get_model(cls):

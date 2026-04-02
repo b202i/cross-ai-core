@@ -1,14 +1,3 @@
-import hashlib
-import json
-import os
-
-
-from .ai_base import BaseAIHandler, _get_cache_dir
-
-AI_MAKE = "xai"
-AI_MODEL = "grok-4-1-fast-reasoning"
-MAX_TOKENS = 16000
-
 """
 xAI Grok Model Family (via Anthropic-compatible API at https://api.x.ai)
 
@@ -62,20 +51,35 @@ The Anthropic SDK is used directly with a custom base_url — no separate SDK re
 Authentication uses the XAI_API_KEY environment variable (xai_api_key in .env).
 """
 
+import json
+import os
+
+from .ai_base import BaseAIHandler
+
+AI_MAKE = "xai"
+AI_MODEL = "grok-4-1-fast-reasoning"
+MAX_TOKENS = 16000
+
+DEFAULT_SYSTEM = (
+    "You are a seasoned investigative reporter, "
+    "striving to be accurate, fair and balanced."
+)
+
 
 class XAIHandler(BaseAIHandler):
 
     @classmethod
-    def get_payload(cls, prompt: str):
-        return get_xai_payload(prompt)
+    def get_payload(cls, prompt: str, system: str | None = None):
+        return get_xai_payload(prompt, system=system)
 
     @classmethod
     def get_client(cls):
         return get_xai_client()
 
     @classmethod
-    def get_cached_response(cls, client, payload, verbose, use_cache):
-        return get_xai_cached_response(client, payload, verbose, use_cache)
+    def _call_api(cls, client, payload: dict) -> dict:
+        response = client.messages.create(**payload)
+        return json.loads(response.to_json())
 
     @classmethod
     def get_model(cls):
@@ -110,70 +114,12 @@ class XAIHandler(BaseAIHandler):
         return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out}
 
 
-def get_xai_cached_response(client, payload, verbose=False, use_cache=True):
-    if not use_cache:
-        if verbose:
-            print("Cache disabled; fetching fresh data.")
-        response = client.messages.create(**payload)
-        json_str = response.to_json()
-        json_response = json.loads(json_str)
-        return json_response, False  # Not cached
-    else:
-        # Convert param to a string for hashing
-        param_str = json.dumps(payload, sort_keys=True)
-        md5_hash = hashlib.md5(param_str.encode('utf-8')).hexdigest()
 
-        # Construct the cache file path
-        cache_dir = _get_cache_dir()
-        cache_file = os.path.join(cache_dir, f"{md5_hash}.json")
-
-        # Check if the response is already in cache
-        if os.path.exists(cache_file):
-            if verbose:
-                print(f"api_cache: Using api_cache: {cache_file}")
-            with open(cache_file, 'r') as f:
-                return json.load(f), True  # Cached
-        else:
-            if verbose:
-                print("api_cache: cache miss, submitting API request")
-
-            # If not in cache, fetch the response
-            response = client.messages.create(**payload)
-            json_str = response.to_json()
-            json_response = None
-
-            try:
-                json_response = json.loads(json_str)
-            except ValueError as e:
-                print(f"api_cache: failed json conversion: {e}")
-
-            if json_response is None:
-                return {}, False
-
-            # Save to cache
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                if verbose:
-                    print(f"api_cache: api_cache dir created: {cache_dir}")
-
-            try:
-                with open(cache_file, 'w') as f:
-                    json.dump(json_response, f)
-            except Exception as e:
-                print(f"api_cache: An error occurred: {str(e)}")
-
-            if verbose:
-                print(f"api_cache: api_cache created: {cache_file}")
-
-            return json_response, False  # Fresh API call, not cached
-
-
-def get_xai_payload(prompt):
+def get_xai_payload(prompt, system: str | None = None):
     gen_payload = {  # Store parameters into a dictionary for calling xAI and saving with the output
         "model": AI_MODEL,
         "max_tokens": MAX_TOKENS,
-        "system": "You are a seasoned investigative reporter, "
-                  "striving to be accurate, fair and balanced.",
+        "system": system if system is not None else DEFAULT_SYSTEM,
         "messages": [
             {
                 "role": "user",

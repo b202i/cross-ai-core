@@ -47,9 +47,23 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     put_content,
 )
 from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
-from cross_ai_core.ai_error_handler import handle_api_error       # noqa: F401
+from cross_ai_core.ai_error_handler import (    # noqa: F401
+    handle_api_error,
+    CrossAIError,
+    QuotaExceededError,
+    RateLimitError,
+    TransientError,
+)
 
-__version__ = "0.3.0"
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+    try:
+        __version__ = _pkg_version("cross-ai-core")
+    except PackageNotFoundError:
+        __version__ = "0.0.0"   # running from source without install
+except ImportError:
+    __version__ = "0.0.0"
+
 __all__ = [
     # Core dispatch
     "process_prompt",
@@ -72,6 +86,10 @@ __all__ = [
     "get_cache_dir",
     # Error handling
     "handle_api_error",
+    "CrossAIError",
+    "QuotaExceededError",
+    "RateLimitError",
+    "TransientError",
     # Package metadata
     "__version__",
 ]

@@ -1,13 +1,3 @@
-import os
-import json
-import hashlib
-
-from .ai_base import BaseAIHandler, _get_cache_dir
-
-AI_MAKE = "perplexity"
-AI_MODEL = "sonar-pro"  # 02mar26
-MAX_TOKENS = 16000
-
 """
 Perplexity Sonar Model Family (via OpenAI-compatible API at https://api.perplexity.ai)
 
@@ -61,20 +51,35 @@ All Sonar models include live web search with citations in the response.
 Authentication uses the PERPLEXITY_API_KEY environment variable.
 """
 
+import json
+import os
+
+from .ai_base import BaseAIHandler
+
+AI_MAKE = "perplexity"
+AI_MODEL = "sonar-pro"  # 02mar26
+MAX_TOKENS = 16000
+
+DEFAULT_SYSTEM = (
+    "You are a seasoned investigative reporter, "
+    "striving to be accurate, fair and balanced."
+)
+
 
 class PerplexityHandler(BaseAIHandler):
 
     @classmethod
-    def get_payload(cls, prompt: str):
-        return get_perplexity_payload(prompt)
+    def get_payload(cls, prompt: str, system: str | None = None):
+        return get_perplexity_payload(prompt, system=system)
 
     @classmethod
     def get_client(cls):
         return get_perplexity_client()
 
     @classmethod
-    def get_cached_response(cls, client, payload, verbose, use_cache):
-        return get_perplexity_cached_response(client, payload, verbose, use_cache)
+    def _call_api(cls, client, payload: dict) -> dict:
+        response = client.chat.completions.create(**payload)
+        return json.loads(response.to_json())
 
     @classmethod
     def get_model(cls):
@@ -110,71 +115,14 @@ class PerplexityHandler(BaseAIHandler):
         return {"input_tokens": inp, "output_tokens": out, "total_tokens": tot}
 
 
-def get_perplexity_cached_response(client, payload, verbose=False, use_cache=True):
-    if not use_cache:
-        if verbose:
-            print("Cache disabled; fetching fresh data.")
-        response = client.chat.completions.create(**payload)
-        json_str = response.to_json()
-        json_response = json.loads(json_str)
-        return json_response, False  # Not cached
-    else:
-        # Convert param to a string for hashing
-        param_str = json.dumps(payload, sort_keys=True)
-        md5_hash = hashlib.md5(param_str.encode('utf-8')).hexdigest()
 
-        # Construct the cache file path
-        cache_dir = _get_cache_dir()
-        cache_file = os.path.join(cache_dir, f"{md5_hash}.json")
-
-        # Check if the response is already in cache
-        if os.path.exists(cache_file):
-            if verbose:
-                print(f"api_cache: Using cache_file: {cache_file}")
-            with open(cache_file, 'r') as f:
-                return json.load(f), True  # Cached
-        else:
-            if verbose:
-                print("api_cache: cache miss, submitting API request")
-
-            # If not in cache, fetch the response
-            response = client.chat.completions.create(**payload)
-            json_str = response.to_json()
-            json_response = None
-
-            try:
-                json_response = json.loads(json_str)
-            except ValueError as e:
-                print(f"api_cache: failed json conversion: {e}")
-
-            if json_response is None:
-                return {}, False
-
-            # Save to cache
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                if verbose:
-                    print(f"api_cache: api_cache/ dir created: {cache_dir}")
-
-            try:
-                with open(cache_file, 'w') as f:
-                    json.dump(json_response, f)
-                    if verbose:
-                        print(f"api_cache: file created: {cache_file}")
-            except Exception as e:
-                print(f"api_cache: file write error: {str(e)}")
-
-            return json_response, False  # Fresh API call, not cached
-
-
-def get_perplexity_payload(prompt_from_file):
+def get_perplexity_payload(prompt_from_file, system: str | None = None):
     payload = {
         "model": AI_MODEL,
         "messages": [
             {
                 "role": "system",           # System instruction now explicit — consistent with other AI handlers
-                "content": "You are a seasoned investigative reporter, "
-                           "striving to be accurate, fair and balanced.",
+                "content": system if system is not None else DEFAULT_SYSTEM,
             },
             {
                 "role": "user",

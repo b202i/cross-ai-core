@@ -113,32 +113,40 @@ class TestHandleApiError:
         assert exc_info.value.code == 1
 
     def test_quota_error_no_exit_when_disabled(self):
-        # Should not raise SystemExit when exit_on_quota=False
-        result = handle_api_error(
-            Exception("exceeded your current quota"),
-            ai_name="openai",
-            exit_on_quota=False,
-            quiet=True,
-        )
-        assert result == "quota"
+        # When exit_on_quota=False, should raise QuotaExceededError instead of SystemExit
+        from cross_ai_core.ai_error_handler import QuotaExceededError
+        with pytest.raises(QuotaExceededError) as exc_info:
+            handle_api_error(
+                Exception("exceeded your current quota"),
+                ai_name="openai",
+                exit_on_quota=False,
+                quiet=True,
+            )
+        assert exc_info.value.ai_name == "openai"
 
     def test_rate_limit_returns_type_and_does_not_exit(self):
-        result = handle_api_error(
-            Exception("429 rate limit"),
-            ai_name="gemini",
-            exit_on_quota=True,
-            quiet=True,
-        )
-        assert result == "rate_limit"
+        # Rate limit errors now raise RateLimitError (not SystemExit)
+        from cross_ai_core.ai_error_handler import RateLimitError
+        with pytest.raises(RateLimitError) as exc_info:
+            handle_api_error(
+                Exception("429 rate limit"),
+                ai_name="gemini",
+                exit_on_quota=True,
+                quiet=True,
+            )
+        assert exc_info.value.ai_name == "gemini"
 
     def test_transient_returns_type_and_does_not_exit(self):
-        result = handle_api_error(
-            Exception("503 unavailable"),
-            ai_name="xai",
-            exit_on_quota=True,
-            quiet=True,
-        )
-        assert result == "transient"
+        # Transient errors now raise TransientError (not SystemExit)
+        from cross_ai_core.ai_error_handler import TransientError
+        with pytest.raises(TransientError) as exc_info:
+            handle_api_error(
+                Exception("503 unavailable"),
+                ai_name="xai",
+                exit_on_quota=True,
+                quiet=True,
+            )
+        assert exc_info.value.ai_name == "xai"
 
     def test_other_error_returns_type(self):
         result = handle_api_error(

@@ -112,17 +112,14 @@ pip install build twine
 
 ### Step 1 — Bump the version
 
-Edit **two files**:
+Edit **`pyproject.toml`** only — this is the single source of truth:
 
-**`pyproject.toml`:**
 ```toml
 version = "0.2.0"
 ```
 
-**`cross_ai_core/__init__.py`:**
-```python
-__version__ = "0.2.0"
-```
+`cross_ai_core/__init__.py` reads the version at runtime via `importlib.metadata`
+and does **not** contain a hardcoded version string.
 
 Version numbers follow [Semantic Versioning](https://semver.org/):
 
@@ -194,7 +191,7 @@ The package is now live at <https://pypi.org/project/cross-ai-core/>.
 ### Step 7 — Tag the release in git
 
 ```bash
-git add pyproject.toml cross_ai_core/__init__.py
+git add pyproject.toml
 git commit -m "Release v0.2.0"
 git tag v0.2.0
 git push && git push --tags

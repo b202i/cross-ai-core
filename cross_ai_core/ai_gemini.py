@@ -1,13 +1,3 @@
-import os
-import json
-import hashlib
-
-from .ai_base import BaseAIHandler, _get_cache_dir
-
-AI_MAKE = "gemini"
-AI_MODEL = "gemini-2.5-flash"   # 02mar26 — confirmed available via list_gemini_models.py
-MAX_TOKENS = 16000              # gemini-2.5-flash supports up to 65k output tokens
-
 """
 Google Gemini Model Families (via google-genai SDK, v1beta)
 Confirmed available models from list_gemini_models.py (02mar26):
@@ -79,20 +69,39 @@ v1beta:  Required for systemInstruction and GenerateContentConfig — use this
 v1:      GA endpoint; does NOT support systemInstruction field
 """
 
+import os
+
+from .ai_base import BaseAIHandler
+
+AI_MAKE = "gemini"
+AI_MODEL = "gemini-2.5-flash"   # 02mar26 — confirmed available via list_gemini_models.py
+MAX_TOKENS = 16000              # gemini-2.5-flash supports up to 65k output tokens
+
+DEFAULT_SYSTEM = (
+    "You are a seasoned investigative reporter, "
+    "striving to be accurate, fair and balanced."
+)
+
 
 class GeminiHandler(BaseAIHandler):
 
     @classmethod
-    def get_payload(cls, prompt: str):
-        return get_gemini_payload(prompt)
+    def get_payload(cls, prompt: str, system: str | None = None):
+        return get_gemini_payload(prompt, system=system)
 
     @classmethod
     def get_client(cls):
         return get_gemini_client()
 
     @classmethod
-    def get_cached_response(cls, client, payload, verbose, use_cache):
-        return get_gemini_cached_response(client, payload, verbose, use_cache)
+    def _call_api(cls, client, payload: dict) -> dict:
+        system_instruction = payload.get("system_instruction", DEFAULT_SYSTEM)
+        response = client.models.generate_content(
+            model=payload["model"],
+            contents=payload["contents"],
+            config=get_gemini_config(system_instruction),
+        )
+        return get_json_response(response)
 
     @classmethod
     def get_model(cls):
@@ -139,79 +148,26 @@ def get_json_response(response):
     return json_response
 
 
-def get_gemini_cached_response(client, payload, verbose=False, use_cache=False):
-    if not use_cache:
-        if verbose:
-            print("Cache disabled; fetching fresh data.")
-        response = client.models.generate_content(
-            model=AI_MODEL,
-            contents=payload["contents"],
-            config=get_gemini_config(),
-        )
-        json_response = get_json_response(response)
-        return json_response, False  # Not cached
-    else:
-        # Only serialize JSON-safe fields for hashing
-        param_str = json.dumps({"model": AI_MODEL, "contents": payload["contents"]}, sort_keys=True)
-        md5_hash = hashlib.md5(param_str.encode('utf-8')).hexdigest()
 
-        # Construct the cache file path
-        cache_dir = _get_cache_dir()
-        cache_file = os.path.join(cache_dir, f"{md5_hash}.json")
-
-        # Check if the response is already in cache
-        if os.path.exists(cache_file):
-            if verbose:
-                print(f"api_cache: Using cache_file: {cache_file}")
-            with open(cache_file, 'r') as f:
-                return json.load(f), True  # Cached
-        else:
-            if verbose:
-                print("api_cache: cache miss, submitting API request")
-
-            # If not in cache, fetch the response
-            response = client.models.generate_content(
-                model=AI_MODEL,
-                contents=payload["contents"],
-                config=get_gemini_config(),
-            )
-            json_response = get_json_response(response)
-
-            # Save to cache
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                if verbose:
-                    print(f"api_cache: api_cache/ dir created: {cache_dir}")
-
-            try:
-                with open(cache_file, 'w') as f:
-                    json.dump(json_response, f)
-                    if verbose:
-                        print(f"api_cache: file created: {cache_file}")
-            except Exception as e:
-                print(f"api_cache: file write error: {str(e)}")
-
-            return json_response, False  # Fresh API call, not cached
-
-
-def get_gemini_config():
+def get_gemini_config(system_instruction: str | None = None):
     """Return the GenerateContentConfig separately — not stored in the JSON payload."""
     from google.genai import types
     return types.GenerateContentConfig(
-        system_instruction="You are a seasoned investigative reporter, "
-                           "striving to be accurate, fair and balanced.",
+        system_instruction=system_instruction if system_instruction is not None else DEFAULT_SYSTEM,
         max_output_tokens=MAX_TOKENS,
         temperature=0.7,        # 0.0 = deterministic, 1.0 = creative; 0.7 balances both
         top_p=0.95,             # Nucleus sampling; limits token selection to top 95% probability mass
     )
 
 
-def get_gemini_payload(prompt_from_file):
+def get_gemini_payload(prompt_from_file, system: str | None = None):
     # Gemini payload contains only JSON-serializable fields for storage and hashing.
-    # GenerateContentConfig is built separately in get_gemini_config() and never stored.
+    # system_instruction is stored here so it becomes part of the cache key;
+    # get_gemini_config() reads it back at call time.
     payload = {
         "model": AI_MODEL,
         "contents": prompt_from_file,
+        "system_instruction": system if system is not None else DEFAULT_SYSTEM,
     }
     return payload
 

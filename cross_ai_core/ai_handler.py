@@ -1,4 +1,3 @@
-import json
 import os
 
 from .ai_anthropic import AnthropicHandler
@@ -56,7 +55,14 @@ AI_HANDLER_REGISTRY = {
 AI_LIST = ["xai", "anthropic", "openai", "perplexity", "gemini"]
 
 
-def process_prompt(ai_key: str, prompt: str, verbose: bool, use_cache: bool):
+def process_prompt(
+    ai_key: str,
+    prompt: str,
+    *,
+    system: str | None = None,
+    verbose: bool = False,
+    use_cache: bool = True,
+) -> "AIResponse":
     """
     Process a prompt with the specified AI.
     
@@ -73,7 +79,7 @@ def process_prompt(ai_key: str, prompt: str, verbose: bool, use_cache: bool):
 
     try:
         # Get the payload using the centralized handler.
-        payload = handler_cls.get_payload(prompt)
+        payload = handler_cls.get_payload(prompt, system=system)
         client = handler_cls.get_client()
         cached_response, was_cached = handler_cls.get_cached_response(client, payload, verbose, use_cache)
         model = handler_cls.get_model()
@@ -88,7 +94,7 @@ def process_prompt(ai_key: str, prompt: str, verbose: bool, use_cache: bool):
         raise
 
 
-def get_data_title(ai_key: str, data: json):
+def get_data_title(ai_key: str, data: dict):
     handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")

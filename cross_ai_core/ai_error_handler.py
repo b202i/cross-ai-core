@@ -21,6 +21,27 @@ import sys
 import time
 
 
+# ── Custom exception hierarchy ────────────────────────────────────────────────
+
+class CrossAIError(Exception):
+    """Base class for all cross-ai-core API errors."""
+    def __init__(self, message: str, ai_name: str = ""):
+        super().__init__(message)
+        self.ai_name = ai_name
+
+
+class QuotaExceededError(CrossAIError):
+    """Raised when an API quota or billing limit is exceeded (permanent)."""
+
+
+class RateLimitError(CrossAIError):
+    """Raised when a transient rate-limit (429) is hit — retry is appropriate."""
+
+
+class TransientError(CrossAIError):
+    """Raised on transient service errors (503, 500, overload) — retry is appropriate."""
+
+
 # Keywords that indicate permanent billing/quota issues (no retry)
 QUOTA_ERROR_KEYWORDS = (
     "quota", "insufficient_quota", "credits", "spending limit", 
@@ -188,15 +209,18 @@ def handle_api_error(
             print(format_quota_error_message(ai_name, script_name), file=sys.stderr)
         if exit_on_quota:
             sys.exit(1)
-            
+        raise QuotaExceededError(str(error), ai_name=ai_name)
+
     elif error_type == "rate_limit":
         if not quiet:
             print(format_rate_limit_message(ai_name), file=sys.stderr)
-            
+        raise RateLimitError(str(error), ai_name=ai_name)
+
     elif error_type == "transient":
         if not quiet:
             print(format_transient_error_message(ai_name, error), file=sys.stderr)
-            
+        raise TransientError(str(error), ai_name=ai_name)
+
     else:
         # Unknown error - show raw error
         if not quiet:
@@ -228,6 +252,8 @@ def retry_with_backoff(
         Function result on success
         
     Raises:
+        QuotaExceededError: On permanent billing/quota failure (also sys.exit(1))
+        RateLimitError / TransientError: After all retries exhausted
         Exception: Re-raises the last exception after all retries exhausted
     """
     last_error = None
@@ -235,25 +261,35 @@ def retry_with_backoff(
     for attempt in range(1, max_retries + 1):
         try:
             return func()
-        except Exception as e:
+        except QuotaExceededError:
+            # Quota errors are permanent — exit immediately
+            sys.exit(1)
+        except (RateLimitError, TransientError) as e:
+            # Typed transient errors from process_prompt / handle_api_error
             last_error = e
-            error_type = handle_api_error(
-                e, ai_name, script_name, 
-                exit_on_quota=True,  # Exit immediately on quota errors
-                quiet=quiet
-            )
-            
-            if error_type == "quota":
-                # handle_api_error already exited, but just in case
-                sys.exit(1)
-                
-            if error_type in ("rate_limit", "transient") and attempt < max_retries:
+            if attempt < max_retries:
                 if not quiet:
                     print(f"  Retry {attempt}/{max_retries} in {wait_seconds}s...")
                 time.sleep(wait_seconds)
                 wait_seconds *= 2  # Exponential backoff
             else:
-                # Not worth retrying or out of retries
+                break
+        except Exception as e:
+            # Raw/unknown exceptions from callers not using process_prompt
+            last_error = e
+            error_type = get_error_type(e)
+            if error_type == "quota":
+                if not quiet:
+                    print(format_quota_error_message(ai_name, script_name), file=sys.stderr)
+                sys.exit(1)
+            elif error_type in ("rate_limit", "transient") and attempt < max_retries:
+                if not quiet:
+                    print(f"  {ai_name} transient error — retry {attempt}/{max_retries} in {wait_seconds}s...")
+                time.sleep(wait_seconds)
+                wait_seconds *= 2  # Exponential backoff
+            else:
+                if not quiet:
+                    print(f"\n  {ai_name} API error: {str(e)[:200]}\n", file=sys.stderr)
                 break
     
     # All retries exhausted

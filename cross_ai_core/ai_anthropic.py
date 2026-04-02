@@ -1,15 +1,6 @@
-import hashlib
-import json
-import os
-
-
-from .ai_base import BaseAIHandler, _get_cache_dir
-
-AI_MAKE = "anthropic"
-AI_MODEL = "claude-opus-4-5"  # 02mar26
-MAX_TOKENS = 16000             # min 16000 required for extended thinking
-
 """
+Anthropic Claude provider for cross-ai-core.
+
 or direct Anthropic API:
 
 # Claude 3 Family (Legacy)
@@ -64,20 +55,35 @@ Sonnet: Balances intelligence and speed for high-throughput tasks
 Haiku:  Near-instant responsiveness; live support, translations, content moderation
 """
 
+import json
+import os
+
+from .ai_base import BaseAIHandler
+
+AI_MAKE = "anthropic"
+AI_MODEL = "claude-opus-4-5"  # 02mar26
+MAX_TOKENS = 16000             # min 16000 required for extended thinking
+
+DEFAULT_SYSTEM = (
+    "You are a seasoned investigative reporter, "
+    "striving to be accurate, fair and balanced."
+)
+
 
 class AnthropicHandler(BaseAIHandler):
 
     @classmethod
-    def get_payload(cls, prompt: str):
-        return get_anthropic_payload(prompt)
+    def get_payload(cls, prompt: str, system: str | None = None):
+        return get_anthropic_payload(prompt, system=system)
 
     @classmethod
     def get_client(cls):
         return get_anthropic_client()
 
     @classmethod
-    def get_cached_response(cls, client, payload, verbose, use_cache):
-        return get_anthropic_cached_response(client, payload, verbose, use_cache)
+    def _call_api(cls, client, payload: dict) -> dict:
+        response = client.messages.create(**payload)
+        return json.loads(response.to_json())
 
     @classmethod
     def get_model(cls):
@@ -113,67 +119,8 @@ class AnthropicHandler(BaseAIHandler):
         return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out}
 
 
-def get_anthropic_cached_response(client, payload, verbose=False, use_cache=True):
-    if not use_cache:
-        if verbose:
-            print("Cache disabled; fetching fresh data.")
-        response = client.messages.create(**payload)
-        json_str = response.to_json()
-        json_response = json.loads(json_str)
-        return json_response, False  # Not cached
-    else:
 
-        # Convert param to a string for hashing
-        param_str = json.dumps(payload, sort_keys=True)
-        md5_hash = hashlib.md5(param_str.encode('utf-8')).hexdigest()
-
-        # Construct the cache file path
-        cache_dir = _get_cache_dir()
-        cache_file = os.path.join(cache_dir, f"{md5_hash}.json")
-
-        # Check if the response is already in cache
-        json_response = {"message": "init"}
-        if os.path.exists(cache_file):
-            if verbose:
-                print(f"api_cache: Using api_cache: {cache_file}")
-            with open(cache_file, 'r') as f:
-                return json.load(f), True  # Cached
-        else:
-            if verbose:
-                print("api_cache: cache miss, submitting API request")
-
-            # If not in cache, fetch the response
-            response = client.messages.create(**payload)
-            json_str = response.to_json()
-            json_response = None
-
-            try:
-                json_response = json.loads(json_str)
-            except ValueError as e:
-                print(f"api_cache: failed json conversion: {e}")
-
-            if json_response is None:
-                return {}
-
-            # Save to cache
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-                if verbose:
-                    print(f"api_cache: api_cache dir created: {cache_dir}")
-
-            try:
-                with open(cache_file, 'w') as f:
-                    json.dump(json_response, f)
-            except Exception as e:
-                print(f"api_cache: An error occurred: {str(e)}")
-
-            if verbose:
-                print(f"api_cache: api_cache created: {cache_file}")
-
-            return json_response, False  # Fresh API call, not cached
-
-
-def get_anthropic_payload(prompt):
+def get_anthropic_payload(prompt, system: str | None = None):
     gen_payload = {  # Store parameters into a dictionary for calling X and saving with the output
         "model": AI_MODEL,
         "max_tokens": MAX_TOKENS,
@@ -181,8 +128,7 @@ def get_anthropic_payload(prompt):
             "type": "enabled",
             "budget_tokens": 10000,    # Tokens reserved for internal reasoning (must be < max_tokens)
         },
-        "system": "You are a seasoned investigative reporter, "
-                  "striving to be accurate, fair and balanced.",
+        "system": system or DEFAULT_SYSTEM,
         "messages": [
             {
                 "role": "user",
