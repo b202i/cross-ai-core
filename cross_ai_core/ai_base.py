@@ -46,6 +46,11 @@ class BaseAIHandler(ABC):  # Abstract Base Class
         Subclasses implement only ``_call_api``; they do not need to override
         this method unless they have unusual caching requirements.
         """
+        if os.environ.get("CROSS_NO_CACHE"):
+            if verbose:
+                print("Cache disabled via CROSS_NO_CACHE; fetching fresh data.")
+            return cls._call_api(client, payload), False
+
         if not use_cache:
             if verbose:
                 print("Cache disabled; fetching fresh data.")

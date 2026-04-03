@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.1] — 2026-04-03
+
+### Added
+- `CROSS_NO_CACHE=1` environment variable support — set in `~/.crossenv` or `.env` to bypass the on-disk API response cache globally, without requiring `--no-cache` on every command. Takes priority over `use_cache=True` passed to `process_prompt()` / `get_cached_response()`.
+
+---
+
 ## [0.4.0] — 2026-04-02
 
 ### Added
