@@ -25,7 +25,7 @@ pip install "cross-ai-core[xai]"         # xAI Grok  (uses the OpenAI SDK)
 pip install cross-ai-core                # Perplexity only (uses requests, no extra SDK)
 ```
 
-Install all providers at once (used by [cross](https://github.com/b202i/cross), which runs all 5 simultaneously):
+Install all providers at once (used by [cross-st](https://github.com/b202i/cross-st), which runs all 5 simultaneously):
 
 ```bash
 pip install "cross-ai-core[all]"
@@ -127,6 +127,14 @@ Tests use mocks — no real API keys required.
 - [API reference](docs/api-reference.md) — all public functions, `AIResponse`, parallel calls, error handling
 - [Providers](docs/providers.md) — per-provider guide: models, API keys, strengths, free tiers
 - [Changelog](CHANGELOG.md)
+
+## Used by
+
+| Project | PyPI | Description |
+|---------|------|-------------|
+| **cross-st** | [`cross-st`](https://pypi.org/project/cross-st/) | Multi-AI research reports with cross-product fact-checking. Installs this package automatically via `cross-ai-core[all]`. Full CLI toolkit — `pipx install cross-st`. |
+
+> Building something with `cross-ai-core`? Open a PR or issue to get listed here.
 
 ## License
 
