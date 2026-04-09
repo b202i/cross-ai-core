@@ -6,6 +6,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-04-08
+
+### Added
+- `model=` keyword parameter on `process_prompt()` — per-call model override.
+  Resolution order: explicit `model` arg → `<AI_KEY_UPPER>_MODEL` env var → handler
+  default (e.g. `gemini-2.5-flash`).  Setting `GEMINI_MODEL=gemini-2.5-pro` in
+  `~/.crossenv` globally switches the model without touching code.
+- `get_ai_model(make)` now checks the `<MAKE_UPPER>_MODEL` env var before returning
+  the compiled-in handler default — same resolution order as `process_prompt()`.
+- 11 new tests covering model override paths in `TestProcessPromptModel` and
+  `TestGetAiModel` (105 total, all passing).
+
+### Changed
+- **Provider SDK minimums bumped** (openai is a major version break):
+  - `openai>=2.0.0` (was `>=1.70.0`) — tested on openai 2.31.0
+  - `anthropic>=0.86.0` (was `>=0.84.0`) — tested on anthropic 0.92.0
+  - `google-genai>=1.69.0` (was `>=1.65.0`) — tested on google-genai 1.71.0
+- `process_prompt()` docstring expanded to document all keyword parameters
+- `get_ai_model()` docstring updated to describe env-var resolution order
+
+---
+
 ## [0.4.2] — 2026-04-08
 
 ### Added

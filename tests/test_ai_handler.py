@@ -5,9 +5,11 @@ Coverage:
     AI_LIST / AI_HANDLER_REGISTRY  — completeness
     get_default_ai                 — env resolution, fallback, unknown value
     get_ai_list                    — returns correct list
+    get_ai_model                   — env var override, fallback to handler default
     check_api_key                  — present/missing/unknown provider
     AIResponse                     — tuple unpacking, indexing, was_cached
     process_prompt                 — dispatches to handler; returns AIResponse
+    process_prompt model param     — explicit model arg, env var model override
     process_prompt error path      — ValueError for unknown provider
     get_content / put_content      — dispatch wrappers
     get_usage                      — returns zero dict for unknown provider
@@ -207,11 +209,6 @@ class TestProcessPrompt:
         mock_cls = self._mock_handler()
         with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
             process_prompt("mock_ai", "p", verbose=False, use_cache=False)
-        _, _, kwargs_or_args = (
-            mock_cls.get_cached_response.call_args[0],
-            mock_cls.get_cached_response.call_args[0],
-            mock_cls.get_cached_response.call_args,
-        )
         # use_cache=False must have been passed (positional or keyword)
         call_args = mock_cls.get_cached_response.call_args
         all_args = list(call_args.args) + list(call_args.kwargs.values())
@@ -346,4 +343,95 @@ class TestContentAutoWrappers:
         with pytest.raises(ValueError, match="_make"):
             put_content_auto("report", {"_make": "", "data": "raw"})
 
+
+# ── process_prompt model parameter ────────────────────────────────────────────
+
+class TestProcessPromptModel:
+    """process_prompt() model override: explicit arg and env var."""
+
+    def _mock_handler(self, default_model="handler-default"):
+        mock_cls = MagicMock()
+        mock_cls.get_payload.return_value = {"model": default_model, "other": "data"}
+        mock_cls.get_client.return_value = MagicMock()
+        mock_cls.get_cached_response.return_value = ({"text": "ok"}, False)
+        mock_cls.get_model.return_value = default_model
+        return mock_cls
+
+    def test_explicit_model_overrides_payload(self):
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", model="override-model", use_cache=False)
+        # payload["model"] should be replaced with the override
+        assert result.payload["model"] == "override-model"
+
+    def test_explicit_model_is_reflected_in_result_model(self):
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", model="override-model", use_cache=False)
+        assert result.model == "override-model"
+
+    def test_env_var_model_overrides_handler_default(self, monkeypatch):
+        monkeypatch.setenv("MOCK_AI_MODEL", "env-model")
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", use_cache=False)
+        assert result.model == "env-model"
+        assert result.payload["model"] == "env-model"
+
+    def test_explicit_model_takes_priority_over_env_var(self, monkeypatch):
+        monkeypatch.setenv("MOCK_AI_MODEL", "env-model")
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", model="explicit-model", use_cache=False)
+        assert result.model == "explicit-model"
+
+    def test_no_override_uses_handler_default(self, monkeypatch):
+        monkeypatch.delenv("MOCK_AI_MODEL", raising=False)
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", use_cache=False)
+        assert result.model == "handler-default"
+
+    def test_whitespace_env_var_falls_through_to_handler_default(self, monkeypatch):
+        monkeypatch.setenv("MOCK_AI_MODEL", "   ")
+        mock_cls = self._mock_handler("handler-default")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hi", use_cache=False)
+        assert result.model == "handler-default"
+
+
+# ── get_ai_model env var resolution ────────────────────────────────────────────
+
+class TestGetAiModel:
+    """get_ai_model() checks <MAKE_UPPER>_MODEL env var before the handler default."""
+
+    def test_returns_handler_default_when_no_env(self, monkeypatch):
+        from cross_ai_core.ai_handler import get_ai_model
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        # gemini handler default is defined at module level — just check it's a non-empty string
+        result = get_ai_model("gemini")
+        assert isinstance(result, str) and result
+
+    def test_env_var_overrides_handler_default(self, monkeypatch):
+        from cross_ai_core.ai_handler import get_ai_model
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-pro")
+        assert get_ai_model("gemini") == "gemini-2.5-pro"
+
+    def test_env_var_checked_case_insensitive_key(self, monkeypatch):
+        """Key is uppercased: 'xai' → 'XAI_MODEL'."""
+        from cross_ai_core.ai_handler import get_ai_model
+        monkeypatch.setenv("XAI_MODEL", "grok-3-latest")
+        assert get_ai_model("xai") == "grok-3-latest"
+
+    def test_whitespace_env_var_falls_through(self, monkeypatch):
+        from cross_ai_core.ai_handler import get_ai_model
+        monkeypatch.setenv("OPENAI_MODEL", "   ")
+        result = get_ai_model("openai")
+        # Should return the handler default, not whitespace
+        assert result.strip() == result and result  # non-empty, no surrounding whitespace
+
+    def test_unknown_provider_raises(self):
+        from cross_ai_core.ai_handler import get_ai_model
+        with pytest.raises(ValueError, match="Unsupported AI model"):
+            get_ai_model("no_such_provider")
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "cross-ai-core"
-version         = "0.4.2"
+version         = "0.5.0"
 description     = "Multi-provider AI dispatcher with response caching and error handling."
 readme          = "README.md"
 license         = "MIT"
@@ -33,17 +33,17 @@ dependencies = [
 #   pip install "cross-ai-core[anthropic]"
 #   pip install "cross-ai-core[gemini]"
 #   pip install "cross-ai-core[openai]"    # also covers xAI (Grok)
-anthropic = ["anthropic>=0.84.0"]
-gemini    = ["google-genai>=1.65.0"]
-openai    = ["openai>=1.70.0"]
-xai       = ["openai>=1.70.0"]            # xAI (Grok) uses the OpenAI client SDK
+anthropic = ["anthropic>=0.86.0"]
+gemini    = ["google-genai>=1.69.0"]
+openai    = ["openai>=2.0.0"]
+xai       = ["openai>=2.0.0"]             # xAI (Grok) uses the OpenAI client SDK
 
 # All providers — used by cross (multi-provider by design):
 #   pip install "cross-ai-core[all]"
 all = [
-    "anthropic>=0.84.0",
-    "google-genai>=1.65.0",
-    "openai>=1.70.0",
+    "anthropic>=0.86.0",
+    "google-genai>=1.69.0",
+    "openai>=2.0.0",
 ]
 
 dev = [

@@ -60,29 +60,54 @@ def process_prompt(
     prompt: str,
     *,
     system: str | None = None,
+    model: str | None = None,
     verbose: bool = False,
     use_cache: bool = True,
 ) -> "AIResponse":
     """
     Process a prompt with the specified AI.
-    
+
+    Args:
+        ai_key:    Provider key, e.g. ``"gemini"`` or ``"anthropic"``.
+        prompt:    User prompt text.
+        system:    Optional system instruction; ``None`` uses the provider default.
+        model:     Optional model override for this call.  Resolution order:
+                   explicit ``model`` arg → ``<AI_KEY_UPPER>_MODEL`` env var →
+                   handler default (e.g. ``"gemini-2.5-flash"``).
+        verbose:   Print cache hit/miss messages.
+        use_cache: Read from / write to the on-disk cache (overridden by
+                   ``CROSS_NO_CACHE=1``).
+
     Returns:
         AIResponse: Wrapper object that unpacks as (payload, client, response, model)
                    for backward compatibility, but also provides .was_cached attribute.
-    
+
     Raises:
-        Exception: Re-raises any exception after graceful error handling
+        ValueError: For an unknown *ai_key*.
+        Exception:  Re-raises any exception after graceful error handling.
     """
     handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
 
     try:
-        # Get the payload using the centralized handler.
+        # Build the payload using the centralized handler.
         payload = handler_cls.get_payload(prompt, system=system)
+
+        # Resolve effective model: explicit arg → env var → handler default.
+        # All five providers store the model under the "model" key in their payload.
+        effective_model = (
+            model
+            or os.environ.get(f"{ai_key.upper()}_MODEL", "").strip()
+            or None
+        )
+        if effective_model:
+            payload["model"] = effective_model
+        else:
+            effective_model = handler_cls.get_model()
+
         client = handler_cls.get_client()
         cached_response, was_cached = handler_cls.get_cached_response(client, payload, verbose, use_cache)
-        model = handler_cls.get_model()
 
         # Stamp the provider make so callers never need to pass it separately.
         # This makes the response self-describing for put_content_auto / get_content_auto.
@@ -90,8 +115,8 @@ def process_prompt(
         if isinstance(cached_response, dict):
             cached_response["_make"] = ai_key
 
-        return AIResponse(payload, client, cached_response, model, was_cached)
-    
+        return AIResponse(payload, client, cached_response, effective_model, was_cached)
+
     except Exception as e:
         # Handle common API errors gracefully (quota, rate limit, etc.)
         # This will print user-friendly messages and exit on quota errors
@@ -219,7 +244,24 @@ def get_ai_make(ai_key: str):
     return handler_cls.get_make()
 
 
-def get_ai_model(ai_key: str):
+def get_ai_model(ai_key: str) -> str:
+    """Return the active model string for *ai_key*.
+
+    Resolution order:
+      1. ``<AI_KEY_UPPER>_MODEL`` environment variable  (e.g. ``XAI_MODEL=grok-3-latest``)
+      2. Compiled-in handler default  (e.g. ``"grok-4-1-fast-reasoning"``)
+
+    Set the env var in ``~/.crossenv`` or ``.env`` to switch models globally
+    without touching code.  Use ``process_prompt(..., model="...")`` to override
+    for a single call.
+
+    Raises:
+        ValueError: if *ai_key* is not a registered provider.
+    """
+    # Check env var override first
+    env_model = os.environ.get(f"{ai_key.upper()}_MODEL", "").strip()
+    if env_model:
+        return env_model
     handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")

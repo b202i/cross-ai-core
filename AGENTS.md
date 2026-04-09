@@ -96,3 +96,18 @@ git tag v0.x.y && git push --tags
 4. `python -m build && twine upload dist/*`
 5. In `cross-ai/pyproject.toml`, bump the `cross-ai-core>=` lower bound if needed
 
+## Model overrides (≥ 0.5.0)
+
+Per-call: `process_prompt("gemini", prompt, model="gemini-2.5-pro")`
+
+Global env var (in `~/.crossenv` or `.env`):
+```
+XAI_MODEL=grok-3-latest
+ANTHROPIC_MODEL=claude-sonnet-4-5
+OPENAI_MODEL=gpt-4o-mini
+GEMINI_MODEL=gemini-2.5-pro
+PERPLEXITY_MODEL=sonar-deep-research
+```
+
+`get_ai_model(make)` and `process_prompt()` both resolve: explicit arg → `<MAKE_UPPER>_MODEL` env var → compiled-in handler default.
+
