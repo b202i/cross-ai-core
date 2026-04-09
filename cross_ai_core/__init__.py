@@ -39,16 +39,19 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     get_ai_make,
     get_ai_model,
     get_content,
+    get_content_auto,
     get_data_content,
     get_data_title,
     get_default_ai,
     get_usage,
     process_prompt,
     put_content,
+    put_content_auto,
 )
 from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
 from cross_ai_core.ai_error_handler import (    # noqa: F401
     handle_api_error,
+    retry_with_backoff,
     CrossAIError,
     QuotaExceededError,
     RateLimitError,
@@ -68,7 +71,9 @@ __all__ = [
     # Core dispatch
     "process_prompt",
     "get_content",
+    "get_content_auto",
     "put_content",
+    "put_content_auto",
     "get_data_content",
     "get_data_title",
     "get_default_ai",
@@ -86,6 +91,7 @@ __all__ = [
     "get_cache_dir",
     # Error handling
     "handle_api_error",
+    "retry_with_backoff",
     "CrossAIError",
     "QuotaExceededError",
     "RateLimitError",

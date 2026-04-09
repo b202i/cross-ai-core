@@ -27,10 +27,12 @@ from cross_ai_core.ai_handler import (
     check_api_key,
     get_ai_list,
     get_content,
+    get_content_auto,
     get_default_ai,
     get_usage,
     process_prompt,
     put_content,
+    put_content_auto,
 )
 
 
@@ -265,4 +267,83 @@ class TestGetUsage:
         with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
             result = get_usage("mock_ai", {"usage": {}})
         assert result["total_tokens"] == 30
+
+
+# ── _make stamp in process_prompt ──────────────────────────────────────────────
+
+class TestMakeStamp:
+    """process_prompt() stamps _make into the response dict."""
+
+    def _mock_handler(self, response_data=None):
+        mock_cls = MagicMock()
+        mock_cls.get_payload.return_value = {"mock": "payload"}
+        mock_cls.get_client.return_value = MagicMock()
+        mock_cls.get_cached_response.return_value = (
+            response_data or {"choices": [{"message": {"content": "hi"}}]},
+            False,
+        )
+        mock_cls.get_model.return_value = "mock-model-1"
+        return mock_cls
+
+    def test_make_is_stamped_into_response(self):
+        mock_cls = self._mock_handler()
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hello", verbose=False, use_cache=False)
+        assert result.response["_make"] == "mock_ai"
+
+    def test_make_stamp_does_not_affect_other_fields(self):
+        mock_cls = self._mock_handler(response_data={"text": "hello"})
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hello", verbose=False, use_cache=False)
+        assert result.response["text"] == "hello"
+        assert result.response["_make"] == "mock_ai"
+
+    def test_non_dict_response_is_not_stamped(self):
+        """If a provider returns a non-dict (e.g. None on error path), no AttributeError."""
+        mock_cls = self._mock_handler()
+        mock_cls.get_cached_response.return_value = (None, False)
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = process_prompt("mock_ai", "hello", verbose=False, use_cache=False)
+        assert result.response is None
+
+
+# ── get_content_auto / put_content_auto ────────────────────────────────────────
+
+class TestContentAutoWrappers:
+    """get_content_auto / put_content_auto dispatch via the embedded _make key."""
+
+    def test_get_content_auto_dispatches_via_make(self):
+        mock_cls = MagicMock()
+        mock_cls.get_content.return_value = "auto extracted"
+        response = {"_make": "mock_ai", "data": "raw"}
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = get_content_auto(response)
+        assert result == "auto extracted"
+        mock_cls.get_content.assert_called_once_with(response)
+
+    def test_get_content_auto_raises_without_make(self):
+        with pytest.raises(ValueError, match="_make"):
+            get_content_auto({"data": "raw"})
+
+    def test_get_content_auto_raises_on_empty_make(self):
+        with pytest.raises(ValueError, match="_make"):
+            get_content_auto({"_make": "", "data": "raw"})
+
+    def test_put_content_auto_dispatches_via_make(self):
+        mock_cls = MagicMock()
+        mock_cls.put_content.return_value = {"updated": True}
+        response = {"_make": "mock_ai", "data": "raw"}
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            result = put_content_auto("new report", response)
+        assert result == {"updated": True}
+        mock_cls.put_content.assert_called_once_with("new report", response)
+
+    def test_put_content_auto_raises_without_make(self):
+        with pytest.raises(ValueError, match="_make"):
+            put_content_auto("report", {"data": "raw"})
+
+    def test_put_content_auto_raises_on_empty_make(self):
+        with pytest.raises(ValueError, match="_make"):
+            put_content_auto("report", {"_make": "", "data": "raw"})
+
 

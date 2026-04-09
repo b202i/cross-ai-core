@@ -6,6 +6,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.2] — 2026-04-08
+
+### Added
+- `get_content_auto(response)` — extracts text from a self-describing response using the `_make` key stamped by `process_prompt()`; raises `ValueError` if `_make` is absent
+- `put_content_auto(report, response)` — updates text in a self-describing response the same way; raises `ValueError` if `_make` is absent
+- `process_prompt()` now stamps `"_make": ai_key` into every `dict` response it returns (in-memory only — the on-disk cache is unchanged), making responses self-describing for the `_auto` helpers
+- `retry_with_backoff()` exported from the public API (was implemented in 0.4.0 but inadvertently omitted from `__init__.py`)
+
+---
+
 ## [0.4.1] — 2026-04-03
 
 ### Added

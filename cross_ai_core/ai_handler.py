@@ -83,7 +83,13 @@ def process_prompt(
         client = handler_cls.get_client()
         cached_response, was_cached = handler_cls.get_cached_response(client, payload, verbose, use_cache)
         model = handler_cls.get_model()
-        
+
+        # Stamp the provider make so callers never need to pass it separately.
+        # This makes the response self-describing for put_content_auto / get_content_auto.
+        # We modify in-memory only — the cache file on disk is NOT changed.
+        if isinstance(cached_response, dict):
+            cached_response["_make"] = ai_key
+
         return AIResponse(payload, client, cached_response, model, was_cached)
     
     except Exception as e:
@@ -114,6 +120,48 @@ def put_content(ai_key, report, response):
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.put_content(report, response)
+
+
+def get_content_auto(response: dict) -> str:
+    """Extract text from a self-describing response (requires ``_make`` to be embedded).
+
+    ``process_prompt()`` stamps ``_make`` into every response it returns, so
+    callers that hold a response from ``process_prompt()`` can use this helper
+    without tracking which provider produced the response.
+
+    Raises:
+        ValueError: if ``_make`` is absent (e.g. a response loaded from an old
+                    container that predates the stamp).  Use ``get_content(make,
+                    response)`` in that case.
+    """
+    make = response.get("_make")
+    if not make:
+        raise ValueError(
+            "Response is missing '_make'.  Use get_content(make, response) "
+            "or ensure the response was produced by process_prompt()."
+        )
+    return get_content(make, response)
+
+
+def put_content_auto(report: str, response: dict) -> dict:
+    """Update text in a self-describing response (requires ``_make`` to be embedded).
+
+    ``process_prompt()`` stamps ``_make`` into every response it returns, so
+    callers that hold a response from ``process_prompt()`` can use this helper
+    without tracking which provider produced the response.
+
+    Raises:
+        ValueError: if ``_make`` is absent (e.g. a response loaded from an old
+                    container that predates the stamp).  Use ``put_content(make,
+                    report, response)`` in that case.
+    """
+    make = response.get("_make")
+    if not make:
+        raise ValueError(
+            "Response is missing '_make'.  Use put_content(make, report, response) "
+            "or ensure the response was produced by process_prompt()."
+        )
+    return put_content(make, report, response)
 
 
 def get_data_content(ai_key, select_data):
@@ -228,5 +276,4 @@ def check_api_key(ai_make: str, paths_checked: list | None = None) -> bool:
         print(f"       {i}. {path}  [{status}]")
     print(f"     Fix: add  {env_var}=<your-key>  to one of the files above.\n")
     return False
-
 

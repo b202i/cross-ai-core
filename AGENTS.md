@@ -67,7 +67,7 @@ python -m pytest tests/ -v
 Tests cover:
 - `test_ai_base.py` — `_get_cache_dir` env resolution, `BaseAIHandler` ABC enforcement
 - `test_ai_error_handler.py` — quota/rate-limit/transient classification, `handle_api_error` exit behaviour
-- `test_ai_handler.py` — registry completeness, `get_default_ai`, `check_api_key`, `AIResponse` backward compat, `process_prompt` with mocked handlers
+- `test_ai_handler.py` — registry completeness, `get_default_ai`, `check_api_key`, `AIResponse` backward compat, `process_prompt` with mocked handlers, `_make` stamp, `get_content_auto`, `put_content_auto`
 
 **Never call real AI APIs in tests.** Use `unittest.mock.patch.dict(AI_HANDLER_REGISTRY, ...)` to inject mock handler classes.
 
@@ -82,7 +82,7 @@ bump checklist, tagging, and the hotfix workflow.
 Quick reference (assumes `~/.pypirc` is already configured):
 
 ```bash
-# bump version in pyproject.toml + cross_ai_core/__init__.py, then:
+# bump version in pyproject.toml, then:
 rm -rf dist/ && python -m build && twine check dist/*
 twine upload --repository testpypi dist/*   # trial
 twine upload dist/*                         # real
@@ -90,8 +90,8 @@ git tag v0.x.y && git push --tags
 ```
 
 ## Version bump checklist
-1. Update `version` in `pyproject.toml`
-2. Update `__version__` in `cross_ai_core/__init__.py`
+1. Update `version` in `pyproject.toml` — this is the **single source of truth**; `__init__.py` reads the version via `importlib.metadata` and does **not** contain a hardcoded version string
+2. Add entry to `CHANGELOG.md`
 3. `git tag v0.x.y && git push --tags`
 4. `python -m build && twine upload dist/*`
 5. In `cross-ai/pyproject.toml`, bump the `cross-ai-core>=` lower bound if needed
