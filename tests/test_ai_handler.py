@@ -92,6 +92,17 @@ class TestGetAiList:
     def test_matches_ai_list_constant(self):
         assert get_ai_list() == AI_LIST
 
+    def test_order_is_deterministic(self):
+        """AI_LIST order is fixed — st-cross relies on it for the N×N display matrix."""
+        assert get_ai_list() == ["xai", "anthropic", "openai", "perplexity", "gemini"]
+
+    def test_returns_copy_not_live_reference(self):
+        """Mutating the returned list must not affect subsequent calls."""
+        first = get_ai_list()
+        first.clear()
+        second = get_ai_list()
+        assert second == ["xai", "anthropic", "openai", "perplexity", "gemini"]
+
 
 # ── check_api_key ──────────────────────────────────────────────────────────────
 

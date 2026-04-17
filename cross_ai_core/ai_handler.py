@@ -197,8 +197,13 @@ def get_data_content(ai_key, select_data):
     return content
 
 
-def get_ai_list():
-    return AI_LIST
+def get_ai_list() -> list[str]:
+    """Return a copy of the ordered provider list.
+
+    Returns a new list on every call so that callers who mutate the result
+    (e.g. ``get_ai_list().remove("xai")``) do not corrupt the global ``AI_LIST``.
+    """
+    return list(AI_LIST)
 
 
 def get_usage(ai_key: str, response: dict) -> dict:
