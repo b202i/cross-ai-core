@@ -65,7 +65,16 @@ recommended per-provider semaphore sizes (consumed by `cross-st`'s PAR-1
   `-> dict` return type; `str  None` annotation corrected to `"str | None"`.
   (CAC-6)
 
-### Removed
+### Fixed
+- **`NameError: name 'DEFAULT_SYSTEM' is not defined` in gemini provider** — CAC-7
+  lifted `DEFAULT_SYSTEM` to `BaseAIHandler` and removed the local constant from all
+  five provider files, but one call site in `GeminiHandler._call_api()` (the
+  `payload.get("system_instruction", DEFAULT_SYSTEM)` fallback argument) was missed.
+  Every gemini API call raised a `NameError` and was reported as a failure in
+  `st-cross` Step 1. Fixed by replacing the bare name with
+  `BaseAIHandler.DEFAULT_SYSTEM`. (`d788e69`)
+
+
 - Stray commented `base_url="https://api.x.ai"` artifact in
   `ai_anthropic.py` `get_anthropic_client()`. (CAC-9)
 
