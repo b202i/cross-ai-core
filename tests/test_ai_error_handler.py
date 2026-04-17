@@ -196,3 +196,97 @@ class TestGetAiDashboardUrl:
         url = get_ai_dashboard_url("unknown_provider")
         assert "unknown_provider" in url
 
+
+
+# ── CAC-4A: "timeout" keyword routes to transient ─────────────────────────────
+
+class TestTimeoutIsTransient:
+    """CAC-4A — httpx/SDK timeout errors must be classified as transient."""
+
+    @pytest.mark.parametrize("msg", [
+        "httpx.ReadTimeout",
+        "APITimeoutError: request timed out",
+        "Connection timeout after 30s",
+        "timeout waiting for response",
+    ])
+    def test_timeout_is_transient(self, msg):
+        assert is_transient_error(Exception(msg)) is True
+
+    def test_timeout_routes_to_transient_type(self):
+        assert get_error_type(Exception("ReadTimeout")) == "transient"
+
+    def test_timeout_not_misclassified_as_quota(self):
+        assert is_quota_error(Exception("timeout")) is False
+
+
+# ── CAC-4B: retry_budget kwarg ────────────────────────────────────────────────
+
+class TestRetryBudget:
+    """CAC-4B — retry_budget caps total retry time."""
+
+    def test_retry_budget_zero_fails_immediately(self):
+        """retry_budget=0 means no sleep, fail on first transient error."""
+        from cross_ai_core.ai_error_handler import retry_with_backoff, RateLimitError
+        calls = 0
+
+        def failing():
+            nonlocal calls
+            calls += 1
+            raise RateLimitError("rate limit", ai_name="xai")
+
+        with pytest.raises(Exception):
+            retry_with_backoff(failing, "xai", retry_budget=0, quiet=True)
+        # Should have been called only once (no retries after budget=0)
+        assert calls == 1
+
+    def test_retry_budget_exhaustion_raises_last_error(self, monkeypatch):
+        """When budget is exhausted after one capped sleep, no further retries happen."""
+        from cross_ai_core.ai_error_handler import retry_with_backoff, TransientError
+        import time
+
+        sleep_calls = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
+        def failing():
+            raise TransientError("503 overloaded", ai_name="openai")
+
+        with pytest.raises(Exception):
+            retry_with_backoff(
+                failing, "openai",
+                max_retries=5,
+                wait_seconds=30,
+                retry_budget=10,  # budget < wait_seconds, caps first sleep to 10
+                quiet=True,
+            )
+        # Sleep is called once with the capped value (min(30, 10)=10),
+        # then budget_remaining=0 so subsequent retries break immediately.
+        assert len(sleep_calls) == 1
+        assert sleep_calls[0] == 10.0
+
+    def test_retry_budget_none_uses_normal_backoff(self, monkeypatch):
+        """retry_budget=None (default) still does normal exponential backoff."""
+        from cross_ai_core.ai_error_handler import retry_with_backoff, TransientError
+        import time
+
+        sleep_calls = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
+        attempt_count = 0
+
+        def failing():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise TransientError("503 overloaded", ai_name="gemini")
+
+        with pytest.raises(Exception):
+            retry_with_backoff(
+                failing, "gemini",
+                max_retries=3,
+                wait_seconds=1,
+                retry_budget=None,
+                quiet=True,
+            )
+        # Should have slept twice (between attempt 1→2 and 2→3)
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 1   # first sleep = wait_seconds
+        assert sleep_calls[1] == 2   # second sleep = wait_seconds * 2

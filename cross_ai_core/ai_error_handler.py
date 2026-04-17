@@ -53,7 +53,7 @@ QUOTA_ERROR_KEYWORDS = (
 TRANSIENT_ERROR_KEYWORDS = (
     "503", "500", "502", "504", "UNAVAILABLE", "overloaded", 
     "temporarily", "high demand", "try again", "rate limit",
-    "too many requests",
+    "too many requests", "timeout",
 )
 
 
@@ -235,7 +235,8 @@ def retry_with_backoff(
     max_retries: int = 3,
     wait_seconds: int = 15,
     quiet: bool = False,
-    script_name: str = None
+    script_name: str = None,
+    retry_budget: "float | None" = None,
 ):
     """
     Retry a function with exponential backoff on transient errors.
@@ -247,7 +248,10 @@ def retry_with_backoff(
         wait_seconds: Base wait time between retries (default: 15)
         quiet: Suppress output
         script_name: Name of calling script
-        
+        retry_budget: Optional total time budget in seconds. When set, each sleep
+            is capped so cumulative wait never exceeds the budget. Set to 0 to
+            fail immediately on the first transient error (no retries).
+
     Returns:
         Function result on success
         
@@ -256,8 +260,9 @@ def retry_with_backoff(
         RateLimitError / TransientError: After all retries exhausted
         Exception: Re-raises the last exception after all retries exhausted
     """
+    budget_remaining = float(retry_budget) if retry_budget is not None else None
     last_error = None
-    
+
     for attempt in range(1, max_retries + 1):
         try:
             return func()
@@ -268,9 +273,17 @@ def retry_with_backoff(
             # Typed transient errors from process_prompt / handle_api_error
             last_error = e
             if attempt < max_retries:
+                if budget_remaining is not None:
+                    if budget_remaining <= 0:
+                        break  # budget exhausted
+                    actual_wait = min(wait_seconds, budget_remaining)
+                else:
+                    actual_wait = wait_seconds
                 if not quiet:
-                    print(f"  Retry {attempt}/{max_retries} in {wait_seconds}s...")
-                time.sleep(wait_seconds)
+                    print(f"  Retry {attempt}/{max_retries} in {actual_wait:.0f}s...")
+                time.sleep(actual_wait)
+                if budget_remaining is not None:
+                    budget_remaining -= actual_wait
                 wait_seconds *= 2  # Exponential backoff
             else:
                 break
@@ -283,9 +296,17 @@ def retry_with_backoff(
                     print(format_quota_error_message(ai_name, script_name), file=sys.stderr)
                 sys.exit(1)
             elif error_type in ("rate_limit", "transient") and attempt < max_retries:
+                if budget_remaining is not None:
+                    if budget_remaining <= 0:
+                        break  # budget exhausted
+                    actual_wait = min(wait_seconds, budget_remaining)
+                else:
+                    actual_wait = wait_seconds
                 if not quiet:
-                    print(f"  {ai_name} transient error — retry {attempt}/{max_retries} in {wait_seconds}s...")
-                time.sleep(wait_seconds)
+                    print(f"  {ai_name} transient error — retry {attempt}/{max_retries} in {actual_wait:.0f}s...")
+                time.sleep(actual_wait)
+                if budget_remaining is not None:
+                    budget_remaining -= actual_wait
                 wait_seconds *= 2  # Exponential backoff
             else:
                 if not quiet:

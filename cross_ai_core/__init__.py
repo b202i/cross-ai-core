@@ -43,6 +43,7 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     get_data_content,
     get_data_title,
     get_default_ai,
+    get_rate_limit_concurrency,
     get_usage,
     process_prompt,
     put_content,
@@ -80,6 +81,7 @@ __all__ = [
     "get_ai_model",
     "get_ai_make",
     "get_ai_list",
+    "get_rate_limit_concurrency",
     "get_usage",
     "check_api_key",
     # Registry

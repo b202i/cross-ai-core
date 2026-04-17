@@ -39,9 +39,22 @@ class AIResponse:
         """Enable backward-compatible indexing."""
         return (self.payload, self.client, self.response, self.model)[index]
     
-    def __len__(self):
+    def __len__(self) -> int:
         """Return tuple length for compatibility."""
         return 4
+
+    def __repr__(self) -> str:
+        """Human-readable summary for debugging."""
+        preview = ""
+        if isinstance(self.response, dict):
+            from .ai_handler import get_content_auto
+            try:
+                text = get_content_auto(self.response)
+                preview = repr(text[:80] + "…" if len(text) > 80 else text)
+            except Exception:
+                pass
+        cached = "cached" if self.was_cached else "live"
+        return f"AIResponse(model={self.model!r}, {cached}, content={preview})"
 
 
 AI_HANDLER_REGISTRY = {
@@ -54,6 +67,17 @@ AI_HANDLER_REGISTRY = {
 
 AI_LIST = ["xai", "anthropic", "openai", "perplexity", "gemini"]
 
+# Per-provider default semaphore sizes for concurrent callers (e.g. PAR-1 in st-cross).
+# Values are conservative starting points based on free/starter tier rate limits.
+# Consumers can override at runtime; these are advisory defaults only.
+_RATE_LIMIT_CONCURRENCY: dict[str, int] = {
+    "xai":        3,
+    "anthropic":  2,
+    "openai":     3,
+    "perplexity": 2,
+    "gemini":     5,
+}
+
 
 def process_prompt(
     ai_key: str,
@@ -63,6 +87,7 @@ def process_prompt(
     model: str | None = None,
     verbose: bool = False,
     use_cache: bool = True,
+    retry_budget: "float | None" = None,
 ) -> "AIResponse":
     """
     Process a prompt with the specified AI.
@@ -77,6 +102,10 @@ def process_prompt(
         verbose:   Print cache hit/miss messages.
         use_cache: Read from / write to the on-disk cache (overridden by
                    ``CROSS_NO_CACHE=1``).
+        retry_budget: Optional total time budget in seconds passed to
+                   ``retry_with_backoff`` when wrapping process_prompt calls.
+                   Not used internally by process_prompt itself; callers may
+                   pass it through to ``retry_with_backoff``.
 
     Returns:
         AIResponse: Wrapper object that unpacks as (payload, client, response, model)
@@ -204,6 +233,31 @@ def get_ai_list() -> list[str]:
     (e.g. ``get_ai_list().remove("xai")``) do not corrupt the global ``AI_LIST``.
     """
     return list(AI_LIST)
+
+
+def get_rate_limit_concurrency(make: str) -> int:
+    """Return the recommended maximum concurrent requests for *make*.
+
+    These are conservative defaults suitable for free/starter API tiers.
+    Callers building thread pools or asyncio semaphores should use this as
+    the initial cap and tune upward based on observed error rates.
+
+    Args:
+        make: Provider key, e.g. ``"gemini"`` or ``"anthropic"``.
+
+    Returns:
+        Recommended concurrency as an int.
+
+    Raises:
+        KeyError: if *make* is not a registered provider.
+    """
+    try:
+        return _RATE_LIMIT_CONCURRENCY[make]
+    except KeyError:
+        raise KeyError(
+            f"Unknown provider '{make}'. "
+            f"Known providers: {list(_RATE_LIMIT_CONCURRENCY)}"
+        )
 
 
 def get_usage(ai_key: str, response: dict) -> dict:

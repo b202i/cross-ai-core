@@ -446,3 +446,67 @@ class TestGetAiModel:
         with pytest.raises(ValueError, match="Unsupported AI model"):
             get_ai_model("no_such_provider")
 
+
+
+# ── CAC-5: get_rate_limit_concurrency ─────────────────────────────────────────
+
+class TestGetRateLimitConcurrency:
+    """CAC-5 — get_rate_limit_concurrency() returns per-provider default ints."""
+
+    def test_known_providers_return_int(self):
+        from cross_ai_core.ai_handler import get_rate_limit_concurrency, AI_LIST
+        for make in AI_LIST:
+            result = get_rate_limit_concurrency(make)
+            assert isinstance(result, int) and result > 0, f"{make} should return positive int"
+
+    @pytest.mark.parametrize("make,expected", [
+        ("xai",        3),
+        ("anthropic",  2),
+        ("openai",     3),
+        ("perplexity", 2),
+        ("gemini",     5),
+    ])
+    def test_exact_defaults(self, make, expected):
+        from cross_ai_core.ai_handler import get_rate_limit_concurrency
+        assert get_rate_limit_concurrency(make) == expected
+
+    def test_unknown_provider_raises_key_error(self):
+        from cross_ai_core.ai_handler import get_rate_limit_concurrency
+        with pytest.raises(KeyError, match="no_such_provider"):
+            get_rate_limit_concurrency("no_such_provider")
+
+    def test_exported_from_package(self):
+        from cross_ai_core import get_rate_limit_concurrency
+        assert callable(get_rate_limit_concurrency)
+
+    def test_returns_independent_values(self):
+        """Gemini allows more concurrency than Anthropic by default."""
+        from cross_ai_core.ai_handler import get_rate_limit_concurrency
+        assert get_rate_limit_concurrency("gemini") > get_rate_limit_concurrency("anthropic")
+
+
+# ── CAC-6: AIResponse.__repr__ ────────────────────────────────────────────────
+
+class TestAIResponseRepr:
+    """CAC-6 — AIResponse.__repr__ is informative and doesn't raise."""
+
+    def test_repr_contains_model(self):
+        from cross_ai_core.ai_handler import AIResponse
+        r = AIResponse({}, None, {"_make": "gemini"}, "gemini-2.5-flash", False)
+        assert "gemini-2.5-flash" in repr(r)
+
+    def test_repr_shows_cached(self):
+        from cross_ai_core.ai_handler import AIResponse
+        r = AIResponse({}, None, {"_make": "openai"}, "gpt-4o", True)
+        assert "cached" in repr(r)
+
+    def test_repr_shows_live(self):
+        from cross_ai_core.ai_handler import AIResponse
+        r = AIResponse({}, None, {"_make": "xai"}, "grok-4", False)
+        assert "live" in repr(r)
+
+    def test_repr_does_not_raise_on_missing_make(self):
+        from cross_ai_core.ai_handler import AIResponse
+        r = AIResponse({}, None, {}, "unknown-model", False)
+        rep = repr(r)  # should not raise
+        assert "unknown-model" in rep
