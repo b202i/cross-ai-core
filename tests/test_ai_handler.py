@@ -510,3 +510,139 @@ class TestAIResponseRepr:
         r = AIResponse({}, None, {}, "unknown-model", False)
         rep = repr(r)  # should not raise
         assert "unknown-model" in rep
+
+
+
+# ── CAC-8: lazy + cached client per provider ──────────────────────────────────
+
+class TestClientCache:
+    """CAC-8 — process_prompt() reuses cached SDK clients and skips construction on cache hits."""
+
+    def setup_method(self):
+        from cross_ai_core.ai_handler import reset_client_cache
+        reset_client_cache()
+
+    def teardown_method(self):
+        from cross_ai_core.ai_handler import reset_client_cache
+        reset_client_cache()
+
+    def _mock_handler(self, was_cached=False):
+        mock_cls = MagicMock()
+        mock_cls.get_payload.return_value = {"mock": "payload"}
+        sentinel_client = MagicMock(name="sdk_client")
+        mock_cls.get_client.return_value = sentinel_client
+        mock_cls.get_cached_response.return_value = (
+            {"choices": [{"message": {"content": "x"}}]},
+            was_cached,
+        )
+        mock_cls.get_model.return_value = "mock-model-1"
+        return mock_cls, sentinel_client
+
+    def _invoke_factory(self, mock_cls):
+        """Trigger the client_factory that process_prompt passes to get_cached_response."""
+        call_args = mock_cls.get_cached_response.call_args
+        factory = call_args.kwargs.get("client_factory")
+        assert factory is not None, "process_prompt must pass client_factory= to get_cached_response"
+        return factory()
+
+    def test_repeated_calls_reuse_same_client_instance(self):
+        from cross_ai_core.ai_handler import process_prompt
+        mock_cls, sentinel = self._mock_handler()
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            process_prompt("mock_ai", "p1", use_cache=False)
+            client_first = self._invoke_factory(mock_cls)
+            process_prompt("mock_ai", "p2", use_cache=False)
+            client_second = self._invoke_factory(mock_cls)
+        assert client_first is client_second is sentinel
+        assert mock_cls.get_client.call_count == 1,             "get_client should be called exactly once when cache is warm"
+
+    def test_cache_hit_does_not_construct_client(self):
+        """When get_cached_response signals a cache hit, the factory must never be invoked."""
+        from cross_ai_core.ai_handler import process_prompt
+        mock_cls, _ = self._mock_handler(was_cached=True)
+        # Make get_cached_response simulate a cache hit by NOT invoking the factory.
+        mock_cls.get_cached_response.return_value = ({"_": "cached"}, True)
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            process_prompt("mock_ai", "p", use_cache=True)
+        # Factory was passed but never called → get_client never called either.
+        assert mock_cls.get_client.call_count == 0
+
+    def test_reset_client_cache_drops_instance(self):
+        from cross_ai_core.ai_handler import process_prompt, reset_client_cache
+        mock_cls, _ = self._mock_handler()
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            process_prompt("mock_ai", "p1", use_cache=False)
+            self._invoke_factory(mock_cls)
+            reset_client_cache()
+            process_prompt("mock_ai", "p2", use_cache=False)
+            self._invoke_factory(mock_cls)
+        assert mock_cls.get_client.call_count == 2
+
+    def test_reset_client_cache_per_make_does_not_drop_others(self):
+        from cross_ai_core.ai_handler import process_prompt, reset_client_cache
+        mock_a, _ = self._mock_handler()
+        mock_b, _ = self._mock_handler()
+        with patch.dict(AI_HANDLER_REGISTRY, {"prov_a": mock_a, "prov_b": mock_b}):
+            process_prompt("prov_a", "p", use_cache=False); self._invoke_factory(mock_a)
+            process_prompt("prov_b", "p", use_cache=False); self._invoke_factory(mock_b)
+            reset_client_cache("prov_a")
+            process_prompt("prov_a", "p", use_cache=False); self._invoke_factory(mock_a)
+            process_prompt("prov_b", "p", use_cache=False); self._invoke_factory(mock_b)
+        assert mock_a.get_client.call_count == 2  # rebuilt after reset
+        assert mock_b.get_client.call_count == 1  # untouched by per-make reset
+
+    def test_concurrent_init_creates_only_one_client(self):
+        """Race 10 threads on first-use; assert get_client was called exactly once."""
+        import threading
+        from cross_ai_core.ai_handler import _get_or_create_client, reset_client_cache
+        reset_client_cache()
+        mock_cls = MagicMock()
+        sentinel = object()
+
+        def slow_get_client():
+            # Sleep to widen the race window
+            import time
+            time.sleep(0.01)
+            return sentinel
+
+        mock_cls.get_client = MagicMock(side_effect=slow_get_client)
+
+        barrier = threading.Barrier(10)
+        results = []
+
+        def worker():
+            barrier.wait()
+            results.append(_get_or_create_client(mock_cls, "race_ai"))
+
+        threads = [threading.Thread(target=worker) for _ in range(10)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+
+        assert mock_cls.get_client.call_count == 1,             f"Expected 1 client construction under concurrent init, got {mock_cls.get_client.call_count}"
+        assert all(r is sentinel for r in results)
+        reset_client_cache()
+
+    def test_explicit_client_kwarg_bypasses_cache(self):
+        from cross_ai_core.ai_handler import process_prompt
+        mock_cls, _ = self._mock_handler()
+        injected = MagicMock(name="injected_client")
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            process_prompt("mock_ai", "p", use_cache=False, client=injected)
+            returned = self._invoke_factory(mock_cls)
+        # Explicit client wins; cache helper never consulted
+        assert returned is injected
+        assert mock_cls.get_client.call_count == 0
+
+    def test_CROSS_NO_CLIENT_CACHE_disables_cache(self, monkeypatch):
+        from cross_ai_core.ai_handler import process_prompt
+        monkeypatch.setenv("CROSS_NO_CLIENT_CACHE", "1")
+        mock_cls, _ = self._mock_handler()
+        with patch.dict(AI_HANDLER_REGISTRY, {"mock_ai": mock_cls}):
+            process_prompt("mock_ai", "p1", use_cache=False); self._invoke_factory(mock_cls)
+            process_prompt("mock_ai", "p2", use_cache=False); self._invoke_factory(mock_cls)
+        # Each call constructs a fresh client when the env var is set.
+        assert mock_cls.get_client.call_count == 2
+
+    def test_reset_client_cache_exported_from_package(self):
+        from cross_ai_core import reset_client_cache
+        assert callable(reset_client_cache)

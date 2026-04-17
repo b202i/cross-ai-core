@@ -65,22 +65,43 @@ class BaseAIHandler(ABC):  # Abstract Base Class
 
     @classmethod
     def get_cached_response(
-        cls, client, payload: dict, verbose: bool = False, use_cache: bool = True
+        cls,
+        client,
+        payload: dict,
+        verbose: bool = False,
+        use_cache: bool = True,
+        *,
+        client_factory=None,
     ) -> tuple[dict, bool]:
         """MD5-keyed file cache shared by all providers.
 
         Delegates the actual API call to ``cls._call_api(client, payload)``.
         Subclasses implement only ``_call_api``; they do not need to override
         this method unless they have unusual caching requirements.
+
+        Args:
+            client:         A pre-built provider client.  Pass ``None`` together
+                            with ``client_factory`` to defer construction until
+                            a cache miss actually requires it (CAC-8).
+            payload:        Provider request payload (also used as the MD5 cache key).
+            verbose:        Print cache hit/miss messages.
+            use_cache:      Read from / write to the on-disk cache.
+            client_factory: Optional zero-arg callable that returns a client.
+                            Only invoked on cache miss.  When both ``client`` and
+                            ``client_factory`` are supplied, ``client`` wins.
         """
         if os.environ.get("CROSS_NO_CACHE"):
             if verbose:
                 print("Cache disabled via CROSS_NO_CACHE; fetching fresh data.")
+            if client is None and client_factory is not None:
+                client = client_factory()
             return cls._call_api(client, payload), False
 
         if not use_cache:
             if verbose:
                 print("Cache disabled; fetching fresh data.")
+            if client is None and client_factory is not None:
+                client = client_factory()
             return cls._call_api(client, payload), False
 
         # Deterministic MD5 hash of the full payload → unique key per request
@@ -111,6 +132,8 @@ class BaseAIHandler(ABC):  # Abstract Base Class
         if verbose:
             print("api_cache: miss — calling API")
 
+        if client is None and client_factory is not None:
+            client = client_factory()
         json_response = cls._call_api(client, payload)
         if not json_response:
             return {}, False

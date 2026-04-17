@@ -134,7 +134,6 @@ def get_anthropic_client():
     from anthropic import Anthropic
     client = Anthropic(
         api_key=os.getenv("ANTHROPIC_API_KEY"),
-        # base_url="https://api.x.ai",
     )
     return client
 

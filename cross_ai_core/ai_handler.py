@@ -1,4 +1,6 @@
 import os
+import threading
+from typing import Any, Callable
 
 from .ai_anthropic import AnthropicHandler
 from .ai_gemini import GeminiHandler
@@ -79,6 +81,71 @@ _RATE_LIMIT_CONCURRENCY: dict[str, int] = {
 }
 
 
+# ── Per-provider client cache (CAC-8) ─────────────────────────────────────────
+#
+# SDK clients (anthropic.Anthropic, openai.OpenAI, google.genai.Client) carry
+# an httpx connection pool, TLS context, and auth state.  Reusing one client
+# across calls amortises that cost and keeps TCP keep-alive warm — meaningful
+# for st-speed (50 calls / provider) and PAR-1 subprocesses that make multiple
+# calls to the same provider.
+#
+# Constraints (must be preserved by callers):
+#   * Not safe across os.fork() — child must call reset_client_cache() first.
+#     cross-st uses subprocess (fresh interpreter), so this is currently moot.
+#   * API key changes via os.environ are NOT re-read automatically.  Callers
+#     that rotate keys (e.g. st-admin --setup rewriting ~/.crossenv) must call
+#     reset_client_cache(make) afterwards.
+#   * The cache is process-local; PAR-1 subprocesses each get their own.
+#
+# Disable globally with CROSS_NO_CLIENT_CACHE=1 (mirrors CROSS_NO_CACHE).
+
+_client_cache: dict[str, Any] = {}
+_client_cache_lock = threading.Lock()
+
+
+def _get_or_create_client(handler_cls, ai_key: str) -> Any:
+    """Return a cached client for *ai_key*, creating it on first use.
+
+    Uses double-checked locking: the hot path (cache hit) is lock-free; the
+    cold path (first miss) takes the lock, re-checks, then constructs.
+
+    Honours ``CROSS_NO_CLIENT_CACHE=1`` — when set, every call constructs a
+    fresh client and the cache is bypassed entirely.
+    """
+    if os.environ.get("CROSS_NO_CLIENT_CACHE"):
+        return handler_cls.get_client()
+
+    cached = _client_cache.get(ai_key)
+    if cached is not None:
+        return cached
+
+    with _client_cache_lock:
+        # Re-check under the lock — another thread may have populated it.
+        cached = _client_cache.get(ai_key)
+        if cached is not None:
+            return cached
+        client = handler_cls.get_client()
+        _client_cache[ai_key] = client
+        return client
+
+
+def reset_client_cache(make: "str | None" = None) -> None:
+    """Drop cached SDK client(s) so the next call rebuilds.
+
+    Call after rotating an API key, after ``os.fork()``, or in test teardown.
+
+    Args:
+        make: Provider key to drop (e.g. ``"openai"``).  When ``None``, every
+              cached client is dropped.
+    """
+    with _client_cache_lock:
+        if make is None:
+            _client_cache.clear()
+        else:
+            _client_cache.pop(make, None)
+
+
+
 def process_prompt(
     ai_key: str,
     prompt: str,
@@ -88,6 +155,7 @@ def process_prompt(
     verbose: bool = False,
     use_cache: bool = True,
     retry_budget: "float | None" = None,
+    client: "Any | None" = None,
 ) -> "AIResponse":
     """
     Process a prompt with the specified AI.
@@ -106,6 +174,10 @@ def process_prompt(
                    ``retry_with_backoff`` when wrapping process_prompt calls.
                    Not used internally by process_prompt itself; callers may
                    pass it through to ``retry_with_backoff``.
+        client:    Optional pre-built provider client to use for this call.
+                   When ``None`` (the default), a cached singleton is used —
+                   see ``_get_or_create_client`` and ``reset_client_cache``.
+                   Pass an explicit client (e.g. a mock) to bypass the cache.
 
     Returns:
         AIResponse: Wrapper object that unpacks as (payload, client, response, model)
@@ -135,8 +207,15 @@ def process_prompt(
         else:
             effective_model = handler_cls.get_model()
 
-        client = handler_cls.get_client()
-        cached_response, was_cached = handler_cls.get_cached_response(client, payload, verbose, use_cache)
+        # Defer client construction to cache miss (CAC-8) so cache hits never
+        # touch the SDK constructor.  Explicit client= kwarg wins.
+        if client is not None:
+            client_factory: Callable[[], Any] = lambda c=client: c
+        else:
+            client_factory = lambda: _get_or_create_client(handler_cls, ai_key)
+        cached_response, was_cached = handler_cls.get_cached_response(
+            None, payload, verbose, use_cache, client_factory=client_factory,
+        )
 
         # Stamp the provider make so callers never need to pass it separately.
         # This makes the response self-describing for put_content_auto / get_content_auto.

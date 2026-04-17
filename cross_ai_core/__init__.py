@@ -48,6 +48,7 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     process_prompt,
     put_content,
     put_content_auto,
+    reset_client_cache,
 )
 from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
 from cross_ai_core.ai_error_handler import (    # noqa: F401
@@ -88,6 +89,7 @@ __all__ = [
     "AI_HANDLER_REGISTRY",
     "AI_LIST",
     "AIResponse",
+    "reset_client_cache",
     # Extension points
     "BaseAIHandler",
     "get_cache_dir",
