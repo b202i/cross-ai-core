@@ -6,7 +6,79 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.5.0] — 2026-04-08
+## [0.6.0] — 2026-04-17
+
+This release rolls up the CAC-1 → CAC-9 hardening series. Headline changes:
+the on-disk cache is now atomic + lock-protected, every SDK client is
+constructed lazily and cached per-process, `process_prompt()` accepts a
+`retry_budget`, and a new `get_rate_limit_concurrency()` helper exposes
+recommended per-provider semaphore sizes (consumed by `cross-st`'s PAR-1
+`st-cross --parallel` mode).
+
+### Added
+- **`get_rate_limit_concurrency(make) -> int`** — recommended max concurrent
+  in-flight calls per provider. Defaults: `xai=3, anthropic=2, openai=3,
+  perplexity=2, gemini=5`. Raises `KeyError` on unknown provider. Exported
+  from the package root. (CAC-5)
+- **`retry_budget` kwarg** on `process_prompt()` and the underlying
+  `retry_with_backoff()` — caps total time spent retrying transient errors.
+  Each backoff sleep is shortened to `min(wait, remaining)`; loop exits as
+  soon as the budget hits zero. `retry_budget=0` disables retries entirely;
+  `None` (default) preserves pre-0.6 unlimited-retry behaviour. (CAC-4)
+- **`"timeout"` keyword** added to `TRANSIENT_ERROR_KEYWORDS` — `httpx.ReadTimeout`,
+  `APITimeoutError`, and similar are now classified as transient and retried
+  rather than surfacing immediately. (CAC-4)
+- **Lazy + cached SDK clients per provider** — `process_prompt()` constructs
+  each provider client at most once per process, behind a `threading.Lock`
+  with double-checked locking. Cache hits no longer construct a client at
+  all (factory lambda only invoked on miss / `use_cache=False` /
+  `CROSS_NO_CACHE`). New `process_prompt(..., client=...)` kwarg lets callers
+  inject explicit clients (e.g. test mocks). (CAC-8)
+- **`reset_client_cache(make=None)`** — public helper to drop one or all
+  cached clients. Required for test isolation, key rotation, and post-fork
+  cleanup. Exported from `__init__.py`.
+- **`CROSS_NO_CLIENT_CACHE=1`** env var — fully disables the SDK client
+  cache (mirrors `CROSS_NO_CACHE` for response caching).
+- **`AIResponse.__repr__`** — concise debug string showing model, cached/live
+  flag, and a truncated content preview. (CAC-6)
+- **96 new tests** — `TestCacheAtomicWrite`, `TestGetAiList`,
+  `TestTimeoutIsTransient`, `TestRetryBudget`, `TestGetRateLimitConcurrency`,
+  `TestAIResponseRepr`, `TestClientCache` (8 tests including a
+  `threading.Barrier` race that proves only one client is constructed under
+  concurrent first-use). 144 total, all pass.
+
+### Changed
+- **Cache writes are now atomic + lock-protected** — `BaseAIHandler` writes
+  the cache file via temp-file + `os.rename()` (atomic on POSIX) under
+  `fcntl.LOCK_EX`. Reads acquire `fcntl.LOCK_SH`. Corrupt cache files
+  (`json.JSONDecodeError`/`OSError`) are now caught, deleted, and the call
+  falls through to the live API instead of crashing the subprocess. Windows
+  build falls back gracefully if `fcntl` is unavailable (no-op). (CAC-1)
+- **`get_ai_list()` returns a copy** — `return list(AI_LIST)` — so mutating
+  the return value no longer corrupts the global. Order is asserted as
+  `["xai", "anthropic", "openai", "perplexity", "gemini"]`. (CAC-3)
+- **`DEFAULT_SYSTEM`, `MAX_TOKENS`, `get_title()` lifted to
+  `BaseAIHandler`** — duplicates removed from all 5 provider files
+  (−79 lines). `get_title()` is now a concrete classmethod (was abstract).
+  Module-level payload helpers reference the base-class constants. (CAC-7)
+- **Type annotations tightened** — `BaseAIHandler.get_payload()` gains a
+  `-> dict` return type; `str  None` annotation corrected to `"str | None"`.
+  (CAC-6)
+
+### Removed
+- Stray commented `base_url="https://api.x.ai"` artifact in
+  `ai_anthropic.py` `get_anthropic_client()`. (CAC-9)
+
+### Notes for consumers
+- **`cross-st` requirement bumps to `cross-ai-core>=0.6.0`** to use the new
+  `get_rate_limit_concurrency()` helper from PAR-1.
+- **Cache layer is fork-aware but not fork-safe across providers** — call
+  `reset_client_cache()` after `os.fork()` to be safe. PAR-1 dodges this by
+  using subprocesses (each child gets its own clean cache) — intentional.
+
+---
+
+
 
 ### Added
 - `model=` keyword parameter on `process_prompt()` — per-call model override.
