@@ -62,12 +62,7 @@ from .ai_base import BaseAIHandler
 
 AI_MAKE = "anthropic"
 AI_MODEL = "claude-opus-4-5"  # 02mar26
-MAX_TOKENS = 16000             # min 16000 required for extended thinking
 
-DEFAULT_SYSTEM = (
-    "You are a seasoned investigative reporter, "
-    "striving to be accurate, fair and balanced."
-)
 
 
 class AnthropicHandler(BaseAIHandler):
@@ -106,10 +101,6 @@ class AnthropicHandler(BaseAIHandler):
         return get_data_content(select_data)
 
     @classmethod
-    def get_title(cls, gen_content):
-        return get_title(gen_content)
-
-    @classmethod
     def get_usage(cls, response: dict) -> dict:
         """Extract token counts from an Anthropic-format response dict.
         Note: extended thinking tokens are included in output_tokens."""
@@ -123,12 +114,12 @@ class AnthropicHandler(BaseAIHandler):
 def get_anthropic_payload(prompt, system: str | None = None):
     gen_payload = {  # Store parameters into a dictionary for calling X and saving with the output
         "model": AI_MODEL,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": BaseAIHandler.MAX_TOKENS,
         "thinking": {                  # Extended thinking: deep reasoning mode (Claude 4 / 3.7+)
             "type": "enabled",
             "budget_tokens": 10000,    # Tokens reserved for internal reasoning (must be < max_tokens)
         },
-        "system": system or DEFAULT_SYSTEM,
+        "system": system or BaseAIHandler.DEFAULT_SYSTEM,
         "messages": [
             {
                 "role": "user",
@@ -148,10 +139,6 @@ def get_anthropic_client():
     return client
 
 
-def get_title(story_instance):
-    content = get_data_content(story_instance)
-    title = content.splitlines()[0]
-    return title
 
 
 def get_content(gen_response):

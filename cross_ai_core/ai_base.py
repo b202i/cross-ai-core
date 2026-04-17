@@ -53,6 +53,14 @@ def _get_cache_dir() -> str:
 
 class BaseAIHandler(ABC):  # Abstract Base Class
 
+    # ── Class-level defaults (providers override only if they differ) ─────────
+
+    DEFAULT_SYSTEM: str = (
+        "You are a seasoned investigative reporter, "
+        "striving to be accurate, fair and balanced."
+    )
+    MAX_TOKENS: int = 16000
+
     # ── Concrete shared implementation ────────────────────────────────────────
 
     @classmethod
@@ -190,10 +198,14 @@ class BaseAIHandler(ABC):  # Abstract Base Class
         pass
 
     @classmethod
-    @abstractmethod
     def get_title(cls, gen_content: dict) -> str:
-        """Return the first line of the content as a title."""
-        pass
+        """Return the first line of the data content as a title.
+
+        Delegates to ``cls.get_data_content()`` so the correct provider
+        schema is used automatically.  Providers do not need to override this
+        unless their title extraction differs from ``splitlines()[0]``.
+        """
+        return cls.get_data_content(gen_content).splitlines()[0]
 
     @classmethod
     @abstractmethod

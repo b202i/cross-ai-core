@@ -58,12 +58,7 @@ from .ai_base import BaseAIHandler
 
 AI_MAKE = "xai"
 AI_MODEL = "grok-4-1-fast-reasoning"
-MAX_TOKENS = 16000
 
-DEFAULT_SYSTEM = (
-    "You are a seasoned investigative reporter, "
-    "striving to be accurate, fair and balanced."
-)
 
 
 class XAIHandler(BaseAIHandler):
@@ -102,10 +97,6 @@ class XAIHandler(BaseAIHandler):
         return get_data_content(select_data)
 
     @classmethod
-    def get_title(cls, gen_content):
-        return get_title(gen_content)
-
-    @classmethod
     def get_usage(cls, response: dict) -> dict:
         """Extract token counts from an xAI (Anthropic-compatible) response dict."""
         usage = response.get("usage", {})
@@ -118,8 +109,8 @@ class XAIHandler(BaseAIHandler):
 def get_xai_payload(prompt, system: str | None = None):
     gen_payload = {  # Store parameters into a dictionary for calling xAI and saving with the output
         "model": AI_MODEL,
-        "max_tokens": MAX_TOKENS,
-        "system": system if system is not None else DEFAULT_SYSTEM,
+        "max_tokens": BaseAIHandler.MAX_TOKENS,
+        "system": system if system is not None else BaseAIHandler.DEFAULT_SYSTEM,
         "messages": [
             {
                 "role": "user",
@@ -140,10 +131,6 @@ def get_xai_client():
     return client
 
 
-def get_title(story_instance):
-    content = get_data_content(story_instance)
-    title = content.splitlines()[0]
-    return title
 
 
 def get_content(gen_response):

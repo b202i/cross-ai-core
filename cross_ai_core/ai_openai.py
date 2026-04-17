@@ -58,12 +58,7 @@ from .ai_base import BaseAIHandler
 
 AI_MAKE = "openai"
 AI_MODEL = "gpt-4o"  # 02mar26
-MAX_TOKENS = 16000
 
-DEFAULT_SYSTEM = (
-    "You are a seasoned investigative reporter, "
-    "striving to be accurate, fair and balanced."
-)
 
 
 class OpenAIHandler(BaseAIHandler):
@@ -102,10 +97,6 @@ class OpenAIHandler(BaseAIHandler):
         return get_data_content(select_data)
 
     @classmethod
-    def get_title(cls, gen_content):
-        return get_title(gen_content)
-
-    @classmethod
     def get_usage(cls, response: dict) -> dict:
         """Extract token counts from an OpenAI-format response dict."""
         usage = response.get("usage", {})
@@ -122,14 +113,14 @@ def get_openai_payload(prompt_from_file, system: str | None = None):
         "messages": [
             {
                 "role": "system",           # System instruction — consistent with other AI handlers
-                "content": system if system is not None else DEFAULT_SYSTEM,
+                "content": system if system is not None else BaseAIHandler.DEFAULT_SYSTEM,
             },
             {
                 "role": "user",
                 "content": prompt_from_file,
             }
         ],
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": BaseAIHandler.MAX_TOKENS,
         "temperature": 0.7,         # 0.0 = deterministic, 1.0 = creative; 0.7 balances both
         "top_p": 0.95,              # Nucleus sampling; limits token selection to top 95% probability mass
     }
@@ -143,10 +134,6 @@ def get_openai_client():
     return client
 
 
-def get_title(story_instance):
-    content = get_data_content(story_instance)
-    title = content.splitlines()[0]
-    return title
 
 
 def get_content(gen_response):
