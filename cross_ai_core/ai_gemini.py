@@ -90,7 +90,7 @@ class GeminiHandler(BaseAIHandler):
 
     @classmethod
     def _call_api(cls, client, payload: dict) -> dict:
-        system_instruction = payload.get("system_instruction", DEFAULT_SYSTEM)
+        system_instruction = payload.get("system_instruction", BaseAIHandler.DEFAULT_SYSTEM)
         response = client.models.generate_content(
             model=payload["model"],
             contents=payload["contents"],
