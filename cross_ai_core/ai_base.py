@@ -19,6 +19,25 @@ import json
 import os
 from abc import ABC, abstractmethod
 
+# fcntl is POSIX-only (macOS / Linux).  cross-st is macOS/Linux primary so this
+# is the normal path.  On Windows (B6 future work) the lock calls are no-ops —
+# the atomic rename still protects against truncation, only concurrent readers
+# during a simultaneous write are unprotected on that platform.
+try:
+    import fcntl as _fcntl
+    _LOCK_SH = _fcntl.LOCK_SH
+    _LOCK_EX = _fcntl.LOCK_EX
+
+    def _flock(f, flags: int) -> None:
+        _fcntl.flock(f, flags)
+
+except ImportError:  # Windows
+    _LOCK_SH = 0
+    _LOCK_EX = 0
+
+    def _flock(f, flags: int) -> None:  # noqa: F811
+        pass  # no-op on Windows
+
 
 def _get_cache_dir() -> str:
     """
@@ -66,8 +85,20 @@ class BaseAIHandler(ABC):  # Abstract Base Class
         if os.path.exists(cache_file):
             if verbose:
                 print(f"api_cache: hit  {cache_file}")
-            with open(cache_file, "r") as f:
-                return json.load(f), True
+            try:
+                with open(cache_file, "r") as f:
+                    _flock(f, _LOCK_SH)
+                    data = json.load(f)
+                return data, True
+            except (json.JSONDecodeError, OSError, ValueError) as e:
+                # Corrupt file (e.g. truncated by a killed write).  Delete and
+                # fall through to a fresh API call so the run continues cleanly.
+                if verbose:
+                    print(f"api_cache: corrupt file deleted ({e}), refetching")
+                try:
+                    os.unlink(cache_file)
+                except OSError:
+                    pass
 
         if verbose:
             print("api_cache: miss — calling API")
@@ -77,13 +108,23 @@ class BaseAIHandler(ABC):  # Abstract Base Class
             return {}, False
 
         os.makedirs(cache_dir, exist_ok=True)
+        tmp_file = cache_file + ".tmp"
         try:
-            with open(cache_file, "w") as f:
+            with open(tmp_file, "w") as f:
+                _flock(f, _LOCK_EX)
                 json.dump(json_response, f)
+            # Atomic replace: on POSIX, rename is an atomic syscall so readers
+            # always see either the old complete file or the new complete file —
+            # never a partial write.
+            os.replace(tmp_file, cache_file)
             if verbose:
                 print(f"api_cache: saved {cache_file}")
         except Exception as e:
             print(f"api_cache: write error: {e}")
+            try:
+                os.unlink(tmp_file)
+            except OSError:
+                pass
 
         return json_response, False
 

@@ -6,6 +6,8 @@ Coverage:
     BaseAIHandler        — cannot be instantiated directly (ABC enforcement)
     get_cached_response  — CROSS_NO_CACHE env var bypasses cache
 """
+import hashlib
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -155,6 +157,116 @@ class _FakeHandler(BaseAIHandler):
     @classmethod
     def get_usage(cls, response):
         return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+
+class TestCacheAtomicWrite:
+    """CAC-1: atomic write, flock, and corrupt-file recovery."""
+
+    def test_cache_miss_writes_file(self, monkeypatch, tmp_path):
+        """A cache miss calls _call_api and persists the result."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        response, was_cached = _FakeHandler.get_cached_response(None, {"prompt": "hello"})
+
+        assert response == {"result": "fresh"}
+        assert was_cached is False
+        # Exactly one .json file created; no stray .tmp files
+        json_files = list(tmp_path.glob("*.json"))
+        tmp_files = list(tmp_path.glob("*.tmp"))
+        assert len(json_files) == 1
+        assert len(tmp_files) == 0
+
+    def test_cache_hit_returns_cached_value(self, monkeypatch, tmp_path):
+        """A warm cache returns the stored value without calling the API."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        import hashlib
+        payload = {"prompt": "hello"}
+        key = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        (tmp_path / f"{key}.json").write_text(json.dumps({"result": "cached"}))
+
+        response, was_cached = _FakeHandler.get_cached_response(None, payload)
+
+        assert response == {"result": "cached"}
+        assert was_cached is True
+
+    def test_corrupt_cache_file_falls_back_to_api(self, monkeypatch, tmp_path):
+        """A truncated / corrupt cache file is deleted and a fresh API call is made."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        import hashlib
+        payload = {"prompt": "corrupt-test"}
+        key = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        corrupt_file = tmp_path / f"{key}.json"
+        corrupt_file.write_text("{bad json{{{{")  # truncated / invalid
+
+        # Must not raise; must return a fresh API response
+        response, was_cached = _FakeHandler.get_cached_response(None, payload)
+
+        assert response == {"result": "fresh"}
+        assert was_cached is False
+        # Corrupt file must have been replaced with a valid one
+        assert corrupt_file.exists()
+        reloaded = json.loads(corrupt_file.read_text())
+        assert reloaded == {"result": "fresh"}
+
+    def test_corrupt_cache_verbose_prints_message(self, monkeypatch, tmp_path, capsys):
+        """verbose=True prints a message when a corrupt cache file is recovered."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        import hashlib
+        payload = {"prompt": "verbose-corrupt"}
+        key = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        (tmp_path / f"{key}.json").write_text("not valid json")
+
+        _FakeHandler.get_cached_response(None, payload, verbose=True)
+
+        out = capsys.readouterr().out
+        assert "corrupt" in out.lower() or "refetching" in out.lower()
+
+    def test_no_stray_tmp_file_after_successful_write(self, monkeypatch, tmp_path):
+        """After a successful write, no .tmp file is left on disk."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        _FakeHandler.get_cached_response(None, {"prompt": "tmp-check"})
+
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_written_cache_file_contains_valid_json(self, monkeypatch, tmp_path):
+        """The written cache file is parseable JSON."""
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        _FakeHandler.get_cached_response(None, {"prompt": "valid-json-check"})
+
+        json_files = list(tmp_path.glob("*.json"))
+        assert len(json_files) == 1
+        data = json.loads(json_files[0].read_text())
+        assert data == {"result": "fresh"}
+
+    def test_make_key_absent_from_written_cache_file(self, monkeypatch, tmp_path):
+        """_make must never be written to disk — it is a runtime-only annotation.
+
+        This is the CAC-2 requirement: process_prompt() stamps _make in-memory
+        after get_cached_response() returns, so _make should never appear in the
+        file written by get_cached_response().
+        """
+        monkeypatch.delenv("CROSS_NO_CACHE", raising=False)
+        monkeypatch.setenv("CROSS_API_CACHE_DIR", str(tmp_path))
+
+        _FakeHandler.get_cached_response(None, {"prompt": "make-key-check"})
+
+        json_files = list(tmp_path.glob("*.json"))
+        assert len(json_files) == 1
+        raw = json.loads(json_files[0].read_text())
+        assert "_make" not in raw, (
+            "_make must not be persisted to disk; it is a runtime annotation only"
+        )
 
 
 class TestCrossNoCache:
