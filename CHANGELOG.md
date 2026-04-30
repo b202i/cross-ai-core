@@ -6,7 +6,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.7.0] — 2026-04-30
+## [0.7.1] — 2026-04-30
+
+**Model discovery (CAC-10h).** Adds a single helper —
+`get_available_models(make)` — that asks each provider's SDK what models the
+caller's API key can actually reach, caches the result for 7 days, and falls
+back to a curated `RECOMMENDED_MODELS` list whenever the live call fails.
+Used by the upcoming `st-admin` alias-management wizard (CST-MM-i) so the
+new-alias picker can show real, currently-available models without forcing
+the user to memorise model id strings.
+
+### Added
+- **`cross_ai_core/discovery.py`** — new module:
+  - `ModelInfo(id, family, is_chat, created_at, is_default, is_recommended)` dataclass with `to_json` / `from_json`.
+  - `get_available_models(make, refresh=False) -> list[ModelInfo]` — single public entry point. Sorts recommended first (in curated order), then everything else newest-first.
+  - Per-provider list-and-filter functions for openai (deny-list filter on embeddings/whisper/tts/dall-e/fine-tunes), anthropic (`claude-` prefix), xai (`grok-` prefix), gemini (`generateContent` capability filter, strips `models/` prefix), perplexity (best-effort, sparse endpoint).
+  - 7-day disk cache in `~/.cross_models_cache/<make>.json`; override directory with `CROSS_MODELS_CACHE_DIR`; bypass entirely with `CROSS_NO_MODELS_CACHE=1`. Atomic write via `os.replace`; corrupt cache files self-heal.
+  - Graceful degradation: any exception during the live call → curated `RECOMMENDED_MODELS` returned. **Discovery never raises to the caller.**
+  - Live results spliced with curated entries — recommended ids hidden by a patchy SDK still surface in the wizard.
+  - `MODELS_CACHE_TTL_SECONDS = 604800` exported for callers that want to mirror the policy.
+- **`cross_ai_core/recommendations.py`** — new module:
+  - `RECOMMENDED_MODELS: dict[str, list[str]]` — curated per-make list. First entry is treated as that make's default.
+  - `get_recommended(make)` / `get_recommended_default(make)` helpers.
+  - This file is the canonical place to surface a new flagship model — bump the dict, cut a patch release.
+
+### Changed
+- `cross_ai_core/__init__.py` — exports `ModelInfo`, `get_available_models`, `MODELS_CACHE_TTL_SECONDS`, `RECOMMENDED_MODELS`, `get_recommended`, `get_recommended_default`.
+
+### Tests
+- `tests/test_discovery.py` — **21 new tests**: ModelInfo round-trip, per-provider filter behaviour (5 providers), 7-day TTL fresh/stale/refresh, env-var disable, corrupt cache recovery, annotation, sort order, splice-in, fallback on API error, unknown-make handling, package exports.
+- **196 passed** (was 175 at 0.7.0).
+
+---
+
+
 
 The **multi-model alias layer** (CAC-10). Adds a thin user-facing alias
 namespace (e.g. `anthropic-opus`, `anthropic-sonnet`) that resolves to

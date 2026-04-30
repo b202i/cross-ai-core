@@ -60,6 +60,16 @@ from cross_ai_core.aliases import (   # noqa: F401
     reload_aliases,
     resolve_alias,
 )
+from cross_ai_core.discovery import (   # noqa: F401
+    MODELS_CACHE_TTL_SECONDS,
+    ModelInfo,
+    get_available_models,
+)
+from cross_ai_core.recommendations import (   # noqa: F401
+    RECOMMENDED_MODELS,
+    get_recommended,
+    get_recommended_default,
+)
 from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
 from cross_ai_core.ai_error_handler import (    # noqa: F401
     handle_api_error,
@@ -109,6 +119,13 @@ __all__ = [
     "did_you_mean",
     "get_rate_limit_group",
     "reload_aliases",
+    # Model discovery (CAC-10h)
+    "ModelInfo",
+    "get_available_models",
+    "MODELS_CACHE_TTL_SECONDS",
+    "RECOMMENDED_MODELS",
+    "get_recommended",
+    "get_recommended_default",
     # Extension points
     "BaseAIHandler",
     "get_cache_dir",
