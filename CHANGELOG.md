@@ -6,6 +6,76 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] — 2026-04-30
+
+The **multi-model alias layer** (CAC-10). Adds a thin user-facing alias
+namespace (e.g. `anthropic-opus`, `anthropic-sonnet`) that resolves to
+`(make, model)` pairs, so callers can reference more than one model per
+provider without changing the on-disk container schema or the `--ai` CLI
+surface. Every existing make string is auto-aliased to itself with
+`model=None`, so legacy callers and pre-0.7.0 container files keep working
+byte-for-byte.
+
+### Added
+- **`cross_ai_core/aliases.py`** — new module:
+  - `AliasSpec(make, model)` namedtuple.
+  - `~/.cross_ai_models.json` loader (override path with
+    `CROSS_AI_ALIASES_FILE`); seeds one self-alias per built-in make and
+    merges user definitions on top in declaration order.
+  - `resolve_alias(alias) -> AliasSpec` with `did_you_mean()` typo
+    suggestions; falls through to `AI_HANDLER_REGISTRY` for late-registered
+    providers (test mocks, plug-in handlers).
+  - `get_aliases()`, `get_alias_load_error()`, `reload_aliases()`,
+    `did_you_mean()`.
+  - `get_rate_limit_group(alias) -> (group_key, cap)` — group key is the
+    resolved make so multiple aliases sharing a make share one semaphore.
+- **`get_ai_make_list()`** — built-in make list (no aliases), useful when an
+  alias-management wizard needs to show the user a "pick a provider" picker
+  separate from the `--ai` choices.
+- `process_prompt()` now stamps `_alias` and `_model` alongside the existing
+  `_make` on every returned response (in-memory only — never written to the
+  cache file).
+
+### Changed
+- **`get_ai_list()`** now returns alias keys (not raw makes). Backward-
+  compatible because every built-in make is auto-registered as a self-alias.
+- **`get_ai_make()`, `get_ai_model()`, `get_default_ai()`, `get_content()`,
+  `put_content()`, `get_data_content()`, `get_data_title()`, `get_usage()`,
+  `check_api_key()`, `reset_client_cache()`** — all resolve alias → make
+  before dispatch.
+- `get_ai_model(alias)` resolution order: explicit `model=` kwarg →
+  `<ALIAS_UPPER>_MODEL` env var (dashes → underscores; e.g.
+  `ANTHROPIC_OPUS_MODEL`) → `<MAKE_UPPER>_MODEL` env var (legacy) → alias
+  spec model → handler default. (CAC-10f)
+- The per-provider client cache is keyed on the **resolved make**, so two
+  aliases sharing a make share one SDK client and one connection pool.
+  Confirmed by `TestAliasesShareClient` (1 construction, 2 calls).
+- `resolve_alias()` raises `ValueError(f"Unsupported AI model: {bad!r}. Did
+  you mean {suggestion!r}? …")` — keeps the legacy `Unsupported AI` prefix
+  so existing grep / test patterns continue to match.
+
+### Tests
+- New `tests/test_aliases.py` — 31 tests covering loader, collision
+  rejection, resolver, did-you-mean, rate-limit-group sharing, alias
+  stamping in `process_prompt`, env-var override chain, client-cache sharing
+  across aliases, and `get_ai_list` / `get_default_ai` alias-awareness.
+- All 144 pre-existing tests stay green. Total: **175 passing**.
+
+### Migration notes for consumers
+- No code changes required for callers that only use built-in make strings
+  (`"xai"`, `"anthropic"`, …) — those keep working unchanged.
+- To add user aliases, drop a `~/.cross_ai_models.json` file:
+  ```json
+  {
+    "anthropic-opus":   {"make": "anthropic", "model": "claude-opus-4-5"},
+    "anthropic-sonnet": {"make": "anthropic", "model": "claude-sonnet-4-5"}
+  }
+  ```
+- `cross-st 0.9.0` consumes this layer for the multi-model `st-cross` matrix
+  (CST-MM series).
+
+---
+
 ## [0.6.0] — 2026-04-17
 
 This release rolls up the CAC-1 → CAC-9 hardening series. Headline changes:
@@ -164,4 +234,3 @@ recommended per-provider semaphore sizes (consumed by `cross-st`'s PAR-1
 - `AIResponse` wrapper with backward-compatible 4-tuple unpacking
 - `handle_api_error()` — classifies quota / rate-limit / transient errors
 - Optional-extras install model (`[anthropic]`, `[gemini]`, `[openai]`, `[xai]`, `[all]`)
-

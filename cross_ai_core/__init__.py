@@ -37,6 +37,7 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     check_api_key,
     get_ai_list,
     get_ai_make,
+    get_ai_make_list,
     get_ai_model,
     get_content,
     get_content_auto,
@@ -49,6 +50,15 @@ from cross_ai_core.ai_handler import (   # noqa: F401
     put_content,
     put_content_auto,
     reset_client_cache,
+)
+from cross_ai_core.aliases import (   # noqa: F401
+    AliasSpec,
+    did_you_mean,
+    get_alias_load_error,
+    get_aliases,
+    get_rate_limit_group,
+    reload_aliases,
+    resolve_alias,
 )
 from cross_ai_core.ai_base import BaseAIHandler, _get_cache_dir as get_cache_dir  # noqa: F401
 from cross_ai_core.ai_error_handler import (    # noqa: F401
@@ -81,6 +91,7 @@ __all__ = [
     "get_default_ai",
     "get_ai_model",
     "get_ai_make",
+    "get_ai_make_list",
     "get_ai_list",
     "get_rate_limit_concurrency",
     "get_usage",
@@ -90,6 +101,14 @@ __all__ = [
     "AI_LIST",
     "AIResponse",
     "reset_client_cache",
+    # Aliases (CAC-10)
+    "AliasSpec",
+    "resolve_alias",
+    "get_aliases",
+    "get_alias_load_error",
+    "did_you_mean",
+    "get_rate_limit_group",
+    "reload_aliases",
     # Extension points
     "BaseAIHandler",
     "get_cache_dir",

@@ -135,13 +135,21 @@ def reset_client_cache(make: "str | None" = None) -> None:
     Call after rotating an API key, after ``os.fork()``, or in test teardown.
 
     Args:
-        make: Provider key to drop (e.g. ``"openai"``).  When ``None``, every
-              cached client is dropped.
+        make: Provider key or alias to drop (e.g. ``"openai"`` or
+              ``"openai-mini"``).  Aliases resolve to their make first, since
+              all aliases sharing a make share one cached client.  When
+              ``None``, every cached client is dropped.
     """
     with _client_cache_lock:
         if make is None:
             _client_cache.clear()
         else:
+            # Resolve alias → make so reset by alias works as expected.
+            try:
+                from .aliases import resolve_alias
+                make = resolve_alias(make).make
+            except ValueError:
+                pass  # unknown — fall through and try the literal key
             _client_cache.pop(make, None)
 
 
@@ -187,7 +195,14 @@ def process_prompt(
         ValueError: For an unknown *ai_key*.
         Exception:  Re-raises any exception after graceful error handling.
     """
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    # CAC-10: resolve alias → (make, alias_default_model).  Legacy callers
+    # passing a make string still work because every built-in make is
+    # auto-registered as a self-alias with model=None.
+    from .aliases import resolve_alias
+    spec = resolve_alias(ai_key)
+    make = spec.make
+
+    handler_cls = AI_HANDLER_REGISTRY.get(make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
 
@@ -195,11 +210,19 @@ def process_prompt(
         # Build the payload using the centralized handler.
         payload = handler_cls.get_payload(prompt, system=system)
 
-        # Resolve effective model: explicit arg → env var → handler default.
-        # All five providers store the model under the "model" key in their payload.
+        # Resolve effective model.  Order:
+        #   1. explicit `model=` arg
+        #   2. `<ALIAS_UPPER>_MODEL` env var (e.g. ANTHROPIC_OPUS_MODEL)
+        #   3. `<MAKE_UPPER>_MODEL` env var  (legacy, pre-alias)
+        #   4. alias spec model (from ~/.cross_ai_models.json)
+        #   5. handler default
+        alias_env  = os.environ.get(f"{ai_key.upper().replace('-', '_')}_MODEL", "").strip()
+        make_env   = os.environ.get(f"{make.upper()}_MODEL", "").strip()
         effective_model = (
             model
-            or os.environ.get(f"{ai_key.upper()}_MODEL", "").strip()
+            or alias_env
+            or make_env
+            or spec.model
             or None
         )
         if effective_model:
@@ -209,19 +232,24 @@ def process_prompt(
 
         # Defer client construction to cache miss (CAC-8) so cache hits never
         # touch the SDK constructor.  Explicit client= kwarg wins.
+        # The client cache is keyed on `make` — multiple aliases that share a
+        # make share one client (and one connection pool).
         if client is not None:
             client_factory: Callable[[], Any] = lambda c=client: c
         else:
-            client_factory = lambda: _get_or_create_client(handler_cls, ai_key)
+            client_factory = lambda: _get_or_create_client(handler_cls, make)
         cached_response, was_cached = handler_cls.get_cached_response(
             None, payload, verbose, use_cache, client_factory=client_factory,
         )
 
-        # Stamp the provider make so callers never need to pass it separately.
-        # This makes the response self-describing for put_content_auto / get_content_auto.
-        # We modify in-memory only — the cache file on disk is NOT changed.
+        # Stamp the provider make + alias + effective model so callers never
+        # need to pass them separately.  Self-describing responses power
+        # put_content_auto / get_content_auto.  In-memory only — the cache
+        # file on disk is NOT modified.
         if isinstance(cached_response, dict):
-            cached_response["_make"] = ai_key
+            cached_response["_make"]  = make
+            cached_response["_alias"] = ai_key
+            cached_response["_model"] = effective_model
 
         return AIResponse(payload, client, cached_response, effective_model, was_cached)
 
@@ -234,7 +262,8 @@ def process_prompt(
 
 
 def get_data_title(ai_key: str, data: dict):
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    handler_cls = AI_HANDLER_REGISTRY.get(resolve_alias(ai_key).make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     title = handler_cls.get_title(data)
@@ -242,14 +271,16 @@ def get_data_title(ai_key: str, data: dict):
 
 
 def get_content(ai_key, response):
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    handler_cls = AI_HANDLER_REGISTRY.get(resolve_alias(ai_key).make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.get_content(response)
 
 
 def put_content(ai_key, report, response):
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    handler_cls = AI_HANDLER_REGISTRY.get(resolve_alias(ai_key).make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.put_content(report, response)
@@ -298,7 +329,8 @@ def put_content_auto(report: str, response: dict) -> dict:
 
 
 def get_data_content(ai_key, select_data):
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    handler_cls = AI_HANDLER_REGISTRY.get(resolve_alias(ai_key).make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     content = handler_cls.get_data_content(select_data)
@@ -306,10 +338,26 @@ def get_data_content(ai_key, select_data):
 
 
 def get_ai_list() -> list[str]:
-    """Return a copy of the ordered provider list.
+    """Return a copy of the ordered alias list.
+
+    Post-CAC-10: returns alias keys (which include every built-in make as a
+    self-alias) rather than just makes.  Order: alias-file declaration order,
+    falling back to ``AI_LIST`` when no alias file is present.
 
     Returns a new list on every call so that callers who mutate the result
-    (e.g. ``get_ai_list().remove("xai")``) do not corrupt the global ``AI_LIST``.
+    (e.g. ``get_ai_list().remove("xai")``) do not corrupt the global registry.
+    """
+    from .aliases import get_aliases
+    return list(get_aliases().keys())
+
+
+def get_ai_make_list() -> list[str]:
+    """Return a copy of the ordered built-in make list (no aliases).
+
+    Use this when iterating over *providers* (e.g. for an alias-management
+    wizard's "pick a make" picker).  For most callers, ``get_ai_list()`` is
+    the right choice — it returns alias keys, which are what users type at
+    the ``--ai`` flag.
     """
     return list(AI_LIST)
 
@@ -353,7 +401,12 @@ def get_usage(ai_key: str, response: dict) -> dict:
             total_tokens  (int) — sum of the above (computed if absent)
         All values default to 0 if the field is missing.
     """
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    try:
+        make = resolve_alias(ai_key).make
+    except ValueError:
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    handler_cls = AI_HANDLER_REGISTRY.get(make)
     if not handler_cls:
         return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     return handler_cls.get_usage(response)
@@ -361,46 +414,63 @@ def get_usage(ai_key: str, response: dict) -> dict:
 
 def get_default_ai():
     """
-    Return the user-configured default AI provider.
+    Return the user-configured default AI alias.
 
     Resolution order:
-      1. ``DEFAULT_AI`` environment variable (set via st-admin or .env)
-      2. First entry in AI_LIST
+      1. ``DEFAULT_AI`` environment variable (set via st-admin or .env).
+         May be either an alias name or a built-in make string — built-in
+         makes are auto-aliased to themselves so both forms work.
+      2. First entry in the alias registry (which falls back to AI_LIST).
 
     Never hardcode a provider name — always call this function.
     """
+    from .aliases import get_aliases
+    aliases = get_aliases()
     configured = os.environ.get("DEFAULT_AI", "").strip()
-    if configured and configured in AI_HANDLER_REGISTRY:
+    if configured and configured in aliases:
         return configured
-    return AI_LIST[0]
+    # registry is guaranteed non-empty (built-ins always seed it)
+    return next(iter(aliases))
 
 
 def get_ai_make(ai_key: str):
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    """Return the canonical *make* for *ai_key* (resolves alias → make first)."""
+    from .aliases import resolve_alias
+    spec = resolve_alias(ai_key)
+    handler_cls = AI_HANDLER_REGISTRY.get(spec.make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.get_make()
 
 
 def get_ai_model(ai_key: str) -> str:
-    """Return the active model string for *ai_key*.
+    """Return the active model string for *ai_key* (alias or make).
 
-    Resolution order:
-      1. ``<AI_KEY_UPPER>_MODEL`` environment variable  (e.g. ``XAI_MODEL=grok-3-latest``)
-      2. Compiled-in handler default  (e.g. ``"grok-4-1-fast-reasoning"``)
+    Resolution order (CAC-10f):
+      1. ``<ALIAS_UPPER>_MODEL`` env var (e.g. ``ANTHROPIC_OPUS_MODEL=…``)
+         where dashes in the alias name are converted to underscores.
+      2. ``<MAKE_UPPER>_MODEL`` env var  (legacy, pre-alias)
+      3. Alias spec model from ``~/.cross_ai_models.json``
+      4. Compiled-in handler default
 
     Set the env var in ``~/.crossenv`` or ``.env`` to switch models globally
     without touching code.  Use ``process_prompt(..., model="...")`` to override
     for a single call.
 
     Raises:
-        ValueError: if *ai_key* is not a registered provider.
+        ValueError: if *ai_key* is not a registered alias or make.
     """
-    # Check env var override first
-    env_model = os.environ.get(f"{ai_key.upper()}_MODEL", "").strip()
-    if env_model:
-        return env_model
-    handler_cls = AI_HANDLER_REGISTRY.get(ai_key)
+    from .aliases import resolve_alias
+    spec = resolve_alias(ai_key)
+    alias_env = os.environ.get(f"{ai_key.upper().replace('-', '_')}_MODEL", "").strip()
+    if alias_env:
+        return alias_env
+    make_env = os.environ.get(f"{spec.make.upper()}_MODEL", "").strip()
+    if make_env:
+        return make_env
+    if spec.model:
+        return spec.model
+    handler_cls = AI_HANDLER_REGISTRY.get(spec.make)
     if not handler_cls:
         raise ValueError(f"Unsupported AI model: {ai_key}")
     return handler_cls.get_model()
@@ -426,7 +496,9 @@ def check_api_key(ai_make: str, paths_checked: list | None = None) -> bool:
     files were searched (in load order) and the exact env-var name to add.
 
     Args:
-        ai_make:       Provider make string, e.g. ``"xai"`` or ``"gemini"``.
+        ai_make:       Provider make or alias string, e.g. ``"xai"`` or
+                       ``"anthropic-opus"``.  Aliases resolve to their make
+                       before the API key lookup.
         paths_checked: Ordered list of dotenv file paths that were attempted,
                        in load order (lowest → highest priority).  When omitted
                        the three canonical A1 paths are shown as defaults.
@@ -435,6 +507,12 @@ def check_api_key(ai_make: str, paths_checked: list | None = None) -> bool:
         ``True``  — key is present and non-empty.
         ``False`` — key is missing; diagnostic has already been printed.
     """
+    # Accept either a make or an alias — resolve to make for the env-var lookup.
+    from .aliases import resolve_alias
+    try:
+        ai_make = resolve_alias(ai_make).make
+    except ValueError:
+        pass  # unknown alias — fall through to the make-based lookup
     env_var = _API_KEY_ENV_VARS.get(ai_make)
     if not env_var:
         return True  # unknown provider — let the SDK surface the real error
